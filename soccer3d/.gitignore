@@ -1,0 +1,12 @@
+# Godot 4 import cache & machine-local files
+.godot/
+
+# Exported builds
+/export/
+/build/
+
+# Godot export presets can contain machine paths / secrets
+export_presets.cfg
+
+# Mono/C# (unused for now)
+.mono/

@@ -1,6 +1,16 @@
-# Flick Soccer
+# Soccer (monorepo)
 
-A turn-based physics soccer game built with **Kotlin Multiplatform** and **Compose Multiplatform**, rendered in real-time 3D via **OpenGL**. Two teams of 5 discs flick a ball around a 3D pitch; chip the ball over defenders and under the crossbar to score.
+> **⚑ New direction:** this repo is pivoting to a **stylized 3D arcade football game (Dream League
+> Soccer–inspired, 5-a-side) built in Godot 4** — see [`football-plan.md`](football-plan.md) and the
+> Godot project in [`soccer3d/`](soccer3d/). Both games live behind one menu in the Godot app:
+> **3D Football (Exhibition)** and **Flick Soccer** (being ported from the Kotlin version below).
+> The Kotlin/Compose flick game documented here remains as the reference for that port.
+
+---
+
+# Flick Soccer (Kotlin/Compose — reference / to be ported)
+
+A turn-based physics soccer game built with **Kotlin Multiplatform** and **Compose Multiplatform**. Two teams of 5 discs flick a ball around a pitch; chip the ball over defenders and under the crossbar to score.
 
 Targets: **Android · iOS · Desktop (JVM)**.
 
