@@ -15,13 +15,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.focusable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.ukemeikot.flicksoccer.domain.model.Difficulty
@@ -41,7 +54,27 @@ fun GameScreen(
     LaunchedEffect(vsAi, difficulty) { viewModel.startMatch(vsAi, difficulty) }
     val state by viewModel.state.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Desktop keyboard shortcuts: C = Ground/Chip, P = pause/resume, R = rematch (§13).
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (e.key) {
+                    Key.C -> {
+                        viewModel.setShotType(if (state.shotType == ShotType.GROUND) ShotType.CHIP else ShotType.GROUND); true
+                    }
+                    Key.P -> { viewModel.setPaused(!state.isPaused); true }
+                    Key.R -> { viewModel.rematch(); true }
+                    else -> false
+                }
+            },
+    ) {
         HudBar(
             scoreA = state.match.scoreA,
             scoreB = state.match.scoreB,
@@ -117,8 +150,19 @@ private fun HudBar(
 
 @Composable
 private fun CenterBanner(text: String) {
+    val scale = remember { Animatable(0.5f) }
+    LaunchedEffect(text) {
+        scale.snapTo(0.5f)
+        scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessLow))
+    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black, color = Color.White)
+        Text(
+            text,
+            style = MaterialTheme.typography.displayMedium,
+            fontWeight = FontWeight.Black,
+            color = Color.White,
+            modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value },
+        )
     }
 }
 

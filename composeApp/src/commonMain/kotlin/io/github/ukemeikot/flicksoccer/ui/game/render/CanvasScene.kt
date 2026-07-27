@@ -12,10 +12,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import io.github.ukemeikot.flicksoccer.domain.model.BodyKind
+import io.github.ukemeikot.flicksoccer.domain.model.MatchPhase
 import io.github.ukemeikot.flicksoccer.domain.model.PitchSpec
 import io.github.ukemeikot.flicksoccer.platform.gl.PointerEventGl
 import io.github.ukemeikot.flicksoccer.util.Vec3
@@ -95,9 +97,26 @@ private fun DrawScope.projectedRadius(camera: Camera, x: Float, y: Float, z: Flo
 }
 
 private fun DrawScope.drawScene(camera: Camera, pitch: PitchSpec, snap: RenderSnapshot?, paletteIndex: Int) {
-    // Sky/backdrop.
+    // Sky/backdrop (not affected by the goal-cam punch).
     drawRect(Color(0xFF0E1A12), size = size)
 
+    // §5.3 goal-cam punch: a brief zoom toward the ball in the net when a goal is scored.
+    val punch = goalCamPunch(camera, snap)
+    if (punch != null) {
+        scale(punch.first, punch.first, pivot = punch.second) { drawWorld(camera, pitch, snap, paletteIndex) }
+    } else {
+        drawWorld(camera, pitch, snap, paletteIndex)
+    }
+}
+
+private fun DrawScope.goalCamPunch(camera: Camera, snap: RenderSnapshot?): Pair<Float, Offset>? {
+    if (snap == null || snap.phase != MatchPhase.GOAL_SCORED) return null
+    val ball = snap.bodies.firstOrNull { it.kind == BodyKind.BALL } ?: return null
+    val t = (snap.scoreFlashSeconds / 1.5f).coerceIn(0f, 1f)
+    return (1f + 0.18f * t) to projectPoint(camera, ball.x, ball.y, 0f)
+}
+
+private fun DrawScope.drawWorld(camera: Camera, pitch: PitchSpec, snap: RenderSnapshot?, paletteIndex: Int) {
     drawPitch(camera, pitch)
     drawMarkings(camera, pitch)
     drawGoals(camera, pitch)
