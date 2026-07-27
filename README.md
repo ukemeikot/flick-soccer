@@ -4,14 +4,19 @@ A turn-based physics soccer game built with **Kotlin Multiplatform** and **Compo
 
 Targets: **Android · iOS · Desktop (JVM)**.
 
-> Status: **M4 — playable match** (Android + Desktop). Boots straight to the menu (no login/account
-> gate); local 2-player is fully playable — slingshot aiming with a 3D-picked disc, Ground/Chip shots,
-> real physics, scoring, goal reset, and match-over. A lightweight stopgap AI keeps vs-AI moving until
-> the full simulation planner lands in M5. Desktop unit tests: 24 green. See
-> [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap (M5 AI, M6 polish/sound, M7 hardening).
+> Status: **v1 feature-complete (M0–M7)** on Desktop + Android. Boots straight to the menu (no
+> login/account gate). Local 2-player and vs-AI (Easy/Medium/Hard) are playable — slingshot aiming
+> with a 3D-picked disc, Ground/Chip shots, real 2.5D physics, scoring, goal reset, match-over,
+> procedural sound effects, haptics (Android), and settings (sound/haptics/difficulty/team colors).
+>
+> **Renderer note:** the match is drawn with a **Compose Canvas 2.5D renderer** (projected through a
+> perspective camera) rather than the OpenGL path — the heavyweight `AWTGLCanvas` would not composite
+> inside Compose Desktop's `SwingPanel`. The OpenGL renderer + `Gl` abstraction remain in the repo
+> behind the interface for a future true-3D pass. Desktop unit tests: 35 green.
 >
 > **Try it:** `./gradlew :composeApp:run` (desktop) or run the `composeApp` config on an Android
-> device/emulator. Drag back from one of your discs and release to flick.
+> device/emulator. Drag back from one of your (blue) discs and release to flick; toggle ⚽ Ground /
+> 🪁 Chip in the HUD.
 
 ---
 

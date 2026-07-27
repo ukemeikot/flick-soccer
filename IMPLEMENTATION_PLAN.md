@@ -35,9 +35,13 @@ Each milestone ends with the project **compiling** and its **tests green**.
 
 ## 2. Milestones
 
-> **Progress:** M0–M4 complete and pushed. Local 2-player is playable on Desktop and Android; desktop
-> unit tests are green (24). Next: **M5 (AI)**. iOS renderer host is still a placeholder (M3 for iOS
-> pending a Mac). GL visuals are compile- and launch-verified but not yet visually QA'd by a human.
+> **Progress:** M0–M7 complete and pushed — v1 is feature-complete on Desktop + Android (35 desktop
+> unit tests green). **Renderer changed:** the match is drawn by a Compose Canvas 2.5D renderer
+> (`ui/game/render/CanvasScene.kt`), not OpenGL — the heavyweight `AWTGLCanvas` never composited
+> inside Compose Desktop's `SwingPanel` (blank screen + native crash). The GL renderer/`Gl`/
+> `GameGlSurface` stay in the tree behind the interface for a future true-3D backend. iOS host uses
+> the shared Canvas (renders) but audio/haptics on iOS are still no-op stubs pending a Mac to verify.
+> Visual/interactive polish (camera framing, feel) is the remaining human-QA pass.
 
 ### M0 — Scaffold ✅
 KMP Compose Multiplatform project targeting Android/iOS/Desktop; version catalog; Koin wired;
@@ -77,19 +81,19 @@ formation reset; turn limit + match end; goal-cam punch.
 - **Accept:** full local 2P match playable on all three platforms; a chip visibly arcs over a defender and can
   clang the crossbar.
 
-### M5 — AI (1 day)
+### M5 — AI ✅
 `AiPlanner` with simulation search over ground **and chip** candidates (with corridor pruning), 3 difficulties,
 human-like thinking delay.
 - **Tests:** AI never moves opponent discs; Hard scores within N turns on an open-goal fixture; Hard chooses a
   chip when the only path is over a wall of defenders; Easy never chips; Easy ≠ Hard choice distribution.
 - **Accept:** vs-AI match playable at all difficulties.
 
-### M6 — Polish (1–1.5 days)
+### M6 — Polish ✅
 Sounds via `expect/actual` `AudioPlayer`; haptics; goal celebration; pause overlay; menu/settings screens
 complete; team palettes (material tints); settings + match-history persistence; ball-spin visual.
 - **Accept:** sound toggles work on all platforms; match history survives app restart.
 
-### M7 — Hardening (1 day)
+### M7 — Hardening ✅ (physics/AI tuning constants documented; visual polish pending human QA)
 Tune physics constants & AI weights (gravity, loftFactor, chipPlaneSpeedPenalty, groundRestitution,
 crossbarHeight) against the §4.3 targets; edge cases (flick during pause, rapid rematch, toggling chip
 mid-drag, desktop resize, GL context loss mid-sim, Android portrait lock); performance (60fps mid-range
