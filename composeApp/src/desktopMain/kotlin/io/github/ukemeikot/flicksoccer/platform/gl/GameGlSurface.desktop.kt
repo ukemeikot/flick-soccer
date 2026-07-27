@@ -75,12 +75,18 @@ actual fun GameGlSurface(
             canvas.addMouseListener(mouse)
             canvas.addMouseMotionListener(mouse)
 
+            val reportedError = AtomicBoolean(false)
             Thread {
                 while (running.get()) {
                     try {
                         if (canvas.isValid) canvas.render()
-                    } catch (_: Throwable) {
-                        // Context not ready yet / transient AWT state; retry next tick.
+                    } catch (t: Throwable) {
+                        // Transient AWT/context states are normal early on; surface the first real
+                        // error (e.g. shader compile) once so a blank canvas isn't silent.
+                        if (reportedError.compareAndSet(false, true)) {
+                            System.err.println("[flick-gl] render error: ${t.message}")
+                            t.printStackTrace()
+                        }
                     }
                     Thread.sleep(15)
                 }

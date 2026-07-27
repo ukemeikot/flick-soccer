@@ -82,7 +82,7 @@ kotlin {
             implementation(libs.lwjgl)
             implementation(libs.lwjgl.opengl)
             implementation(libs.lwjgl3.awt)
-            val lwjglVersion = "3.3.4"
+            val lwjglVersion = "3.3.1"
             listOf("natives-windows", "natives-linux", "natives-macos", "natives-macos-arm64").forEach { natives ->
                 runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$natives")
                 runtimeOnly("org.lwjgl:lwjgl-opengl:$lwjglVersion:$natives")

@@ -10,7 +10,8 @@ serialization = "1.7.3"
 koin = "4.0.0"
 lifecycleViewmodel = "2.8.4"
 multiplatformSettings = "1.2.0"
-lwjgl = "3.3.4"
+# lwjgl core pinned to 3.3.1 to match lwjgl3-awt 0.1.8 (JAWT ABI compatibility).
+lwjgl = "3.3.1"
 lwjgl3awt = "0.1.8"
 
 [libraries]
