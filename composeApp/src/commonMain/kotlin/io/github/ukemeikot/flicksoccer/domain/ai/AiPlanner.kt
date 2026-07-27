@@ -104,6 +104,7 @@ class AiPlanner(
     }
 
     private fun simulate(state: MatchState, team: Team, c: ShotCandidate): SimResult {
+        val startBall = state.bodies.first { it.kind == BodyKind.BALL }.position
         val world = PhysicsWorld(state.pitch)
         world.setBodies(state.bodies)
         world.applyFlick(c.discId, Rules.launchVelocity(c.dragVector), Rules.flickSpec(c.shotType))
@@ -121,20 +122,24 @@ class AiPlanner(
             steps++
         }
         val ball = world.snapshot().first { it.kind == BodyKind.BALL }
-        return SimResult(goalBy, crossbar, ball.position, state)
+        return SimResult(goalBy, crossbar, ball.position, startBall, state)
     }
 
     private fun select(scored: List<AiDecision>, difficulty: Difficulty, rng: Random): AiDecision {
-        val sorted = scored.sortedByDescending { it.score }
+        val ranked = scored.sortedByDescending { it.score }
+        val best = ranked.first()
+        // Only ever choose from shots that actually helped (positive ⇒ struck & advanced the ball),
+        // so lower difficulties play sub-optimally but never fire a disc that misses entirely.
+        val useful = ranked.filter { it.score > 0f }.ifEmpty { listOf(best) }
         return when (difficulty) {
-            Difficulty.HARD -> sorted.first()
+            Difficulty.HARD -> best
             Difficulty.MEDIUM -> {
-                val pool = sorted.take((sorted.size / 10).coerceAtLeast(1))
-                addNoise(pool.random(rng), angleDeg = 6f, powerJitter = 0f, rng)
+                val pool = useful.take((useful.size / 6).coerceAtLeast(1))
+                addNoise(pool.random(rng), angleDeg = 5f, powerJitter = 0.05f, rng)
             }
             Difficulty.EASY -> {
-                val pool = sorted.take((sorted.size / 2).coerceAtLeast(1))
-                addNoise(pool.random(rng), angleDeg = 15f, powerJitter = 0.2f, rng)
+                val pool = useful.take((useful.size * 2 / 5).coerceAtLeast(1))
+                addNoise(pool.random(rng), angleDeg = 10f, powerJitter = 0.12f, rng)
             }
         }
     }
@@ -163,16 +168,21 @@ class SimResult(
     val goalBy: Team?,
     val crossbar: Boolean,
     val ballPos: Vec2,
+    val startBall: Vec2,
     val state: MatchState,
 )
 
-/** Scores a terminal simulated state from [forTeam]'s perspective (§6 weights). */
+/**
+ * Scores a terminal simulated state from [forTeam]'s perspective (§6). Scoring is **relative to the
+ * ball's starting position**: a shot that never touches the ball scores ~0 (not a competitive
+ * "safe" value), so contacting shots dominate the ranking and even the random Easy/Medium pools are
+ * full of shots that actually hit the ball.
+ */
 class Evaluator {
     fun score(r: SimResult, forTeam: Team): Float {
         val pitch = r.state.pitch
         // Team A attacks the +y (top) goal; Team B the -y (bottom) goal.
-        val targetY = if (forTeam == Team.A) pitch.height else 0f
-        val target = Vec2(pitch.halfWidth, targetY)
+        val target = Vec2(pitch.halfWidth, if (forTeam == Team.A) pitch.height else 0f)
 
         var s = 0f
         when (r.goalBy) {
@@ -180,17 +190,19 @@ class Evaluator {
             null -> Unit
             else -> s -= 2000f // conceded / own goal
         }
-        val progress = if (forTeam == Team.A) r.ballPos.y else pitch.height - r.ballPos.y
-        s += progress * PROGRESS_WEIGHT
-        val dist = (r.ballPos - target).length()
-        s += (pitch.height * 0.5f - dist).coerceAtLeast(0f) * DISTANCE_WEIGHT
+        // How much closer to the target goal the ball ended up than where it started.
+        val progressToward = (r.startBall - target).length() - (r.ballPos - target).length()
+        s += progressToward * PROGRESS_WEIGHT
+        // Small bonus for making contact at all, so the AI always engages the ball.
+        val displacement = (r.ballPos - r.startBall).length()
+        s += displacement * CONTACT_WEIGHT
         if (r.crossbar) s -= CROSSBAR_PENALTY
         return s
     }
 
     private companion object {
-        const val PROGRESS_WEIGHT = 3f
-        const val DISTANCE_WEIGHT = 2f
+        const val PROGRESS_WEIGHT = 6f
+        const val CONTACT_WEIGHT = 0.6f
         const val CROSSBAR_PENALTY = 30f
     }
 }

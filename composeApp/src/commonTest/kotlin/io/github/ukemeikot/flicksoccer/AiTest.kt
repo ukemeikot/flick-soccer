@@ -79,6 +79,32 @@ class AiTest {
     }
 
     @Test
+    fun ai_actually_hits_the_ball_from_kickoff() {
+        val state = MatchState(bodies = FormationProvider(pitch).kickoff(Team.A), turn = Team.B, pitch = pitch)
+        for (diff in Difficulty.entries) {
+            val start = kotlin.time.TimeSource.Monotonic.markNow()
+            val decision = planner.plan(state, Team.B, diff, seed = 5L)
+            val elapsed = start.elapsedNow()
+            assertNotNull(decision, "$diff should return a plan")
+
+            // Simulate the chosen shot and confirm the ball is actually struck (moves meaningfully).
+            val world = io.github.ukemeikot.flicksoccer.domain.physics.PhysicsWorld(pitch)
+            world.setBodies(state.bodies)
+            world.applyFlick(
+                decision.candidate.discId,
+                io.github.ukemeikot.flicksoccer.domain.engine.Rules.launchVelocity(decision.candidate.dragVector),
+                io.github.ukemeikot.flicksoccer.domain.engine.Rules.flickSpec(decision.candidate.shotType),
+            )
+            val startBall = world.snapshot().first { it.kind == BodyKind.BALL }.position
+            var steps = 0
+            while (steps < 480 && !world.isAtRest) { world.step(); steps++ }
+            val endBall = world.snapshot().first { it.kind == BodyKind.BALL }.position
+            val moved = (endBall - startBall).length()
+            assertTrue(moved > 4f, "$diff AI should hit the ball — moved only $moved (planned in $elapsed)")
+        }
+    }
+
+    @Test
     fun easy_and_hard_choices_differ() {
         val state = MatchState(bodies = FormationProvider(pitch).kickoff(Team.A), turn = Team.A, pitch = pitch)
         var anyDifferent = false
