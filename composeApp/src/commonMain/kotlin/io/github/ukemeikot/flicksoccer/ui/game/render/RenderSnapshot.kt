@@ -26,4 +26,6 @@ data class RenderSnapshot(
     val phase: MatchPhase,
     val scoreFlashSeconds: Float,
     val goalCamPunchSeconds: Float,
+    val crossbarFlashSeconds: Float = 0f, // >0 briefly after a crossbar hit (§8.2 frame flash)
+    val animTimeSeconds: Float = 0f,       // monotonically increasing clock for idle animations (disc pulse)
 )

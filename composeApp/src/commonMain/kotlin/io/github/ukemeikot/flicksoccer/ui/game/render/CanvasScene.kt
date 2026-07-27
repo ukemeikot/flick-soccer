@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.IntSize
 import io.github.ukemeikot.flicksoccer.domain.model.BodyKind
 import io.github.ukemeikot.flicksoccer.domain.model.MatchPhase
 import io.github.ukemeikot.flicksoccer.domain.model.PitchSpec
+import io.github.ukemeikot.flicksoccer.domain.model.ShotType
 import io.github.ukemeikot.flicksoccer.platform.gl.PointerEventGl
 import io.github.ukemeikot.flicksoccer.util.Vec3
 import kotlin.math.PI
@@ -119,13 +120,15 @@ private fun DrawScope.goalCamPunch(camera: Camera, snap: RenderSnapshot?): Pair<
 private fun DrawScope.drawWorld(camera: Camera, pitch: PitchSpec, snap: RenderSnapshot?, paletteIndex: Int) {
     drawPitch(camera, pitch)
     drawMarkings(camera, pitch)
-    drawGoals(camera, pitch)
+    drawGoals(camera, pitch, snap?.crossbarFlashSeconds ?: 0f)
 
     val idx = paletteIndex.coerceIn(0, Palettes.teamA.size - 1)
     val teamAColor = Palettes.teamA[idx].toColor()
     val teamBColor = Palettes.teamB[idx].toColor()
 
     val bodies = snap?.bodies ?: return
+    val aimId = snap.aim?.discId?.value
+    val animT = snap.animTimeSeconds
     // Painter's algorithm: far (larger y) first.
     val sorted = bodies.sortedByDescending { it.y }
     for (b in sorted) {
@@ -138,9 +141,11 @@ private fun DrawScope.drawWorld(camera: Camera, pitch: PitchSpec, snap: RenderSn
             topLeft = Offset(shadowC.x - shadowR, shadowC.y - shadowR * 0.55f),
             size = androidx.compose.ui.geometry.Size(shadowR * 2f, shadowR * 1.1f),
         )
+        // The disc being aimed subtly pulses (§8.2).
+        val pulse = if (b.id == aimId) 1f + 0.09f * sin(animT * 6f) else 1f
         when (b.kind) {
-            BodyKind.TEAM_A_DISC -> drawDisc(camera, b, teamAColor)
-            BodyKind.TEAM_B_DISC -> drawDisc(camera, b, teamBColor)
+            BodyKind.TEAM_A_DISC -> drawDisc(camera, b, teamAColor, pulse)
+            BodyKind.TEAM_B_DISC -> drawDisc(camera, b, teamBColor, pulse)
             BodyKind.BALL -> drawBall(camera, b)
         }
     }
@@ -184,23 +189,25 @@ private fun DrawScope.drawMarkings(camera: Camera, pitch: PitchSpec) {
     drawPath(path, lineColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
 }
 
-private fun DrawScope.drawGoals(camera: Camera, pitch: PitchSpec) {
+private fun DrawScope.drawGoals(camera: Camera, pitch: PitchSpec, crossbarFlash: Float) {
     val mouthHalf = pitch.goalMouthWidth / 2f
     val h = pitch.crossbarHeight
+    // Flash the frames emissive briefly after a crossbar hit (§8.2).
+    val flash = (crossbarFlash / 0.45f).coerceIn(0f, 1f)
+    val frame = Color(1f, 1f, 0.5f + 0.5f * (1f - flash)).let { if (flash > 0f) it else Color.White }
+    val width = 4f + flash * 3f
     for (lineY in floatArrayOf(0f, pitch.height)) {
         val lx = pitch.halfWidth - mouthHalf
         val rx = pitch.halfWidth + mouthHalf
-        // Posts.
-        drawLine(Color.White, projectPoint(camera, lx, lineY, 0f), projectPoint(camera, lx, lineY, h), strokeWidth = 4f)
-        drawLine(Color.White, projectPoint(camera, rx, lineY, 0f), projectPoint(camera, rx, lineY, h), strokeWidth = 4f)
-        // Crossbar.
-        drawLine(Color.White, projectPoint(camera, lx, lineY, h), projectPoint(camera, rx, lineY, h), strokeWidth = 4f)
+        drawLine(frame, projectPoint(camera, lx, lineY, 0f), projectPoint(camera, lx, lineY, h), strokeWidth = width)
+        drawLine(frame, projectPoint(camera, rx, lineY, 0f), projectPoint(camera, rx, lineY, h), strokeWidth = width)
+        drawLine(frame, projectPoint(camera, lx, lineY, h), projectPoint(camera, rx, lineY, h), strokeWidth = width)
     }
 }
 
-private fun DrawScope.drawDisc(camera: Camera, b: BodyTransform, color: Color) {
+private fun DrawScope.drawDisc(camera: Camera, b: BodyTransform, color: Color, pulse: Float = 1f) {
     val center = projectPoint(camera, b.x, b.y, 0f)
-    val r = projectedRadius(camera, b.x, b.y, 0f, b.radius)
+    val r = projectedRadius(camera, b.x, b.y, 0f, b.radius) * pulse
     drawCircle(color, radius = r, center = center)
     drawCircle(color.copy(alpha = 1f).darken(), radius = r, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
     drawCircle(Color.White.copy(alpha = 0.25f), radius = r * 0.5f, center = Offset(center.x - r * 0.25f, center.y - r * 0.25f))
@@ -223,11 +230,29 @@ private fun DrawScope.drawAim(camera: Camera, snap: RenderSnapshot) {
     val dirX = -aim.dragVector.x / dl
     val dirY = -aim.dragVector.y / dl
     val col = Color(aim.power, 1f - aim.power, 0.15f, 0.9f)
-    val spacing = aim.power * 4.5f + 1.6f
-    for (i in 1..10) {
-        val d = i * spacing
-        val p = projectPoint(camera, disc.x + dirX * d, disc.y + dirY * d, 0.2f)
-        drawCircle(col, radius = 4f, center = p)
+
+    // Power ring around the selected disc, growing with power (§5.3).
+    val center = projectPoint(camera, disc.x, disc.y, 0f)
+    val ringR = projectedRadius(camera, disc.x, disc.y, 0f, disc.radius * (1.3f + aim.power * 1.5f))
+    drawCircle(col.copy(alpha = 0.75f), radius = ringR, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+
+    if (aim.shotType == ShotType.CHIP) {
+        // Dashed ballistic-arc preview (shape only, not a physics prediction).
+        val range = aim.power * 46f
+        val apex = 4f + aim.power * 12f
+        for (i in 1..14) {
+            if (i % 2 == 0) continue // dashed
+            val t = i / 14f
+            val z = 4f * apex * t * (1f - t)
+            val p = projectPoint(camera, disc.x + dirX * range * t, disc.y + dirY * range * t, z)
+            drawCircle(col, radius = 3.5f, center = p)
+        }
+    } else {
+        val spacing = aim.power * 4.5f + 1.6f
+        for (i in 1..10) {
+            val d = i * spacing
+            drawCircle(col, radius = 4f, center = projectPoint(camera, disc.x + dirX * d, disc.y + dirY * d, 0.2f))
+        }
     }
 }
 

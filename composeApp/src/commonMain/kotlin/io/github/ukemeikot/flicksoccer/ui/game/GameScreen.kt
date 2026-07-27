@@ -37,6 +37,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.ukemeikot.flicksoccer.domain.model.Difficulty
 import io.github.ukemeikot.flicksoccer.domain.model.MatchPhase
 import io.github.ukemeikot.flicksoccer.domain.model.ShotType
@@ -53,6 +55,9 @@ fun GameScreen(
 ) {
     LaunchedEffect(vsAi, difficulty) { viewModel.startMatch(vsAi, difficulty) }
     val state by viewModel.state.collectAsState()
+
+    // Auto-pause when the app is backgrounded (§9).
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.setPaused(true) }
 
     // Desktop keyboard shortcuts: C = Ground/Chip, P = pause/resume, R = rematch (§13).
     val focusRequester = remember { FocusRequester() }
@@ -93,6 +98,15 @@ fun GameScreen(
                 onPointer = viewModel::onPointer,
                 paletteIndex = state.paletteIndex,
             )
+
+            if (state.aiThinking) {
+                Text(
+                    "Opponent thinking…",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                )
+            }
 
             when (state.match.phase) {
                 MatchPhase.GOAL_SCORED -> CenterBanner("GOAL!")

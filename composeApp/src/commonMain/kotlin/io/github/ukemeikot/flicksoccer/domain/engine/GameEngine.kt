@@ -52,6 +52,10 @@ class GameEngine(
 ) {
     private val world = PhysicsWorld(pitch)
 
+    /** false ⇒ a tie at the turn limit goes to sudden death (golden goal), e.g. vs AI (§1). */
+    var allowDraw: Boolean = true
+    private var suddenDeath = false
+
     var state: MatchState = MatchState(bodies = formationProvider.kickoff(Team.A), pitch = pitch)
         private set
 
@@ -105,6 +109,7 @@ class GameEngine(
                 phase = MatchPhase.GOAL_SCORED
                 if (scoreA >= Rules.GOALS_TO_WIN) { phase = MatchPhase.MATCH_OVER; winner = Team.A }
                 if (scoreB >= Rules.GOALS_TO_WIN) { phase = MatchPhase.MATCH_OVER; winner = Team.B }
+                if (suddenDeath) { phase = MatchPhase.MATCH_OVER; winner = e.scoredBy } // golden goal
             }
         }
 
@@ -128,8 +133,17 @@ class GameEngine(
     fun settleTurn() {
         if (state.phase != MatchPhase.SIMULATING) return
         val nextTurnNumber = state.turnNumber + 1
-        if (nextTurnNumber > Rules.TURN_LIMIT) {
-            state = state.copy(phase = MatchPhase.MATCH_OVER, winner = winnerByScore())
+        val overLimit = nextTurnNumber > Rules.TURN_LIMIT
+        if (overLimit && !suddenDeath) {
+            when {
+                state.scoreA != state.scoreB -> state = state.copy(phase = MatchPhase.MATCH_OVER, winner = winnerByScore())
+                allowDraw -> state = state.copy(phase = MatchPhase.MATCH_OVER, winner = null)
+                else -> {
+                    // Golden goal: keep playing until someone scores.
+                    suddenDeath = true
+                    state = state.copy(phase = MatchPhase.AIMING, turn = state.turn.opponent(), turnNumber = nextTurnNumber)
+                }
+            }
         } else {
             state = state.copy(phase = MatchPhase.AIMING, turn = state.turn.opponent(), turnNumber = nextTurnNumber)
         }
@@ -140,9 +154,11 @@ class GameEngine(
         if (state.phase != MatchPhase.GOAL_SCORED) return
         val conceding = lastScorer()?.opponent() ?: Team.A
         val nextTurnNumber = state.turnNumber + 1
-        if (nextTurnNumber > Rules.TURN_LIMIT) {
-            state = state.copy(phase = MatchPhase.MATCH_OVER, winner = winnerByScore())
-            return
+        val overLimit = nextTurnNumber > Rules.TURN_LIMIT
+        if (overLimit && !suddenDeath) {
+            if (state.scoreA != state.scoreB) { state = state.copy(phase = MatchPhase.MATCH_OVER, winner = winnerByScore()); return }
+            if (allowDraw) { state = state.copy(phase = MatchPhase.MATCH_OVER, winner = null); return }
+            suddenDeath = true // tie at the limit, vs AI → golden goal
         }
         val bodies = formationProvider.kickoff(conceding)
         world.setBodies(bodies)
@@ -156,6 +172,7 @@ class GameEngine(
     }
 
     fun reset(kickoffTo: Team = Team.A) {
+        suddenDeath = false
         val bodies = formationProvider.kickoff(kickoffTo)
         world.setBodies(bodies)
         state = MatchState(bodies = bodies, turn = kickoffTo, pitch = pitch)

@@ -47,6 +47,7 @@ data class GameUiState(
     val isPaused: Boolean = false,
     val shotType: ShotType = ShotType.GROUND,
     val paletteIndex: Int = 0,
+    val aiThinking: Boolean = false,
 )
 
 /** One-shot effects the ViewModel emits for the View to play (sound/haptic). */
@@ -100,6 +101,11 @@ class GameViewModel(
     private var goalTimer = 0f
     private var aiScheduledForTurn = -1
     private var spin = 0f
+    private var animTime = 0f
+    private var crossbarFlash = 0f
+    private var aiThinking = false
+    private var prevBodies: List<io.github.ukemeikot.flicksoccer.domain.model.Body>? = null
+    private var interpAlpha = 0f
 
     fun startMatch(vsAi: Boolean, difficulty: Difficulty) {
         this.vsAi = vsAi
@@ -113,9 +119,14 @@ class GameViewModel(
         recorded = false
         goalTimer = 0f
         aiScheduledForTurn = -1
+        aiThinking = false
+        crossbarFlash = 0f
+        prevBodies = null
+        interpAlpha = 0f
         aimDiscId = null
         aimDrag = Vec2.ZERO
         engine.reset()
+        engine.allowDraw = !vsAi // vs AI ⇒ ties go to sudden death (§1)
         publishState()
         publishSnapshot()
         startLoop()
@@ -133,6 +144,8 @@ class GameViewModel(
                 val now = TimeSource.Monotonic.markNow()
                 val dt = (now - last).inWholeMicroseconds / 1_000_000f
                 last = now
+                animTime += dt
+                if (crossbarFlash > 0f) crossbarFlash = (crossbarFlash - dt).coerceAtLeast(0f)
                 if (!paused) tick(dt, clock)
                 publishSnapshot()
             }
@@ -143,11 +156,13 @@ class GameViewModel(
         when (engine.state.phase) {
             MatchPhase.SIMULATING -> {
                 clock.accumulate(dt)
+                val before = engine.state.bodies
                 val events = ArrayList<CollisionEvent>()
                 var steps = 0
                 while (clock.hasStep() && steps < MAX_STEPS_PER_FRAME) {
                     events += engine.step(); clock.consumeStep(); steps++
                 }
+                if (steps > 0) { prevBodies = before; interpAlpha = clock.alpha() }
                 dispatchEffects(events)
                 when (engine.state.phase) {
                     MatchPhase.MATCH_OVER -> onMatchOver()
@@ -243,12 +258,15 @@ class GameViewModel(
 
         val planningState = engine.state
         val seed = planningState.turnNumber.toLong() * 1000L + planningState.scoreA * 31L + planningState.scoreB * 17L
+        aiThinking = true
+        publishState()
         viewModelScope.launch {
-            // "Thinking" delay + off-main-thread search (§6).
-            delay(AI_THINK_MILLIS)
+            // Human-like pre-flick delay (0.6–1.2s, seeded) + off-main-thread search (§6).
+            delay(AI_THINK_MIN_MILLIS + (seed % 600L))
             val decision = withContext(Dispatchers.Default) {
                 aiPlanner.plan(planningState, Team.B, difficulty, seed)
             }
+            aiThinking = false
             // Re-check nothing changed while we planned.
             if (engine.state.phase == MatchPhase.AIMING && engine.state.turn == Team.B &&
                 engine.state.turnNumber == planningState.turnNumber && decision != null
@@ -256,8 +274,8 @@ class GameViewModel(
                 if (engine.flick(decision.candidate.discId, decision.candidate.dragVector, decision.candidate.shotType)) {
                     audio.play(SoundEffect.KICK)
                 }
-                publishState()
             }
+            publishState()
         }
     }
 
@@ -278,7 +296,7 @@ class GameViewModel(
         if (kick) { audio.play(SoundEffect.KICK); haptics.tick(); _effects.tryEmit(GameEffect.KickSound) }
         if (wall) { audio.play(SoundEffect.WALL_BOUNCE); _effects.tryEmit(GameEffect.WallBounceSound) }
         if (ground) { audio.play(SoundEffect.GROUND_BOUNCE); _effects.tryEmit(GameEffect.GroundBounceSound) }
-        if (crossbar) { audio.play(SoundEffect.CROSSBAR); haptics.tick(); _effects.tryEmit(GameEffect.CrossbarClangSound) }
+        if (crossbar) { crossbarFlash = CROSSBAR_FLASH_SEC; audio.play(SoundEffect.CROSSBAR); haptics.tick(); _effects.tryEmit(GameEffect.CrossbarClangSound) }
         goal?.let { audio.play(SoundEffect.GOAL); haptics.tick(); _effects.tryEmit(GameEffect.GoalScored(it)) }
     }
 
@@ -292,6 +310,7 @@ class GameViewModel(
             isPaused = paused,
             shotType = shotType,
             paletteIndex = paletteIndex,
+            aiThinking = aiThinking,
         )
     }
 
@@ -300,14 +319,30 @@ class GameViewModel(
         val ball = s.bodies.firstOrNull { it.kind == BodyKind.BALL }
         if (ball != null) spin += ball.velocity.length() * 0.02f
         val aim = aimDiscId?.let { AimState(it, aimDrag, Rules.powerOf(aimDrag), shotType) }
+
+        // Interpolate between the two most recent physics states for smooth 60fps motion (§9).
+        val prev = prevBodies
+        val interpolate = prev != null && s.phase == MatchPhase.SIMULATING && prev.size == s.bodies.size
+        val a = interpAlpha
+        val bodies = s.bodies.mapIndexed { i, b ->
+            val x: Float; val y: Float; val z: Float
+            if (interpolate) {
+                val p = prev!![i]
+                x = p.position.x + (b.position.x - p.position.x) * a
+                y = p.position.y + (b.position.y - p.position.y) * a
+                z = p.z + (b.z - p.z) * a
+            } else { x = b.position.x; y = b.position.y; z = b.z }
+            BodyTransform(b.id.value, b.kind, x, y, z, b.radius, if (b.isBall) spin else 0f)
+        }
+
         latestSnapshot = RenderSnapshot(
-            bodies = s.bodies.map {
-                BodyTransform(it.id.value, it.kind, it.position.x, it.position.y, it.z, it.radius, if (it.isBall) spin else 0f)
-            },
+            bodies = bodies,
             aim = aim,
             phase = s.phase,
             scoreFlashSeconds = if (s.phase == MatchPhase.GOAL_SCORED) GOAL_CELEBRATION_SEC - goalTimer else 0f,
             goalCamPunchSeconds = 0f,
+            crossbarFlashSeconds = crossbarFlash,
+            animTimeSeconds = animTime,
         )
     }
 
@@ -319,7 +354,8 @@ class GameViewModel(
 
     companion object {
         private const val GOAL_CELEBRATION_SEC = 1.5f
-        private const val AI_THINK_MILLIS = 800L
+        private const val AI_THINK_MIN_MILLIS = 600L
+        private const val CROSSBAR_FLASH_SEC = 0.45f
         private const val MAX_STEPS_PER_FRAME = 8
         private const val TOUCH_MARGIN = 2.5f
     }

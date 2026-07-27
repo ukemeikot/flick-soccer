@@ -10,6 +10,7 @@ import io.github.ukemeikot.flicksoccer.domain.model.Vec2
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineTest {
@@ -69,6 +70,33 @@ class EngineTest {
         assertEquals(Team.B, engine.state.turn)
         assertEquals(2, engine.state.turnNumber)
         assertEquals(MatchPhase.AIMING, engine.state.phase)
+    }
+
+    @Test
+    fun two_player_tie_at_the_turn_limit_is_a_draw() {
+        val engine = GameEngine() // allowDraw defaults true (local 2P)
+        var guard = 0
+        while (engine.state.phase != MatchPhase.MATCH_OVER && guard++ < 60) {
+            val disc = engine.discsOf(engine.state.turn).first()
+            engine.flick(disc.id, Vec2(0f, if (engine.state.turn == Team.A) -20f else 20f), ShotType.GROUND)
+            engine.settleTurn()
+        }
+        assertEquals(MatchPhase.MATCH_OVER, engine.state.phase)
+        assertNull(engine.state.winner) // 0–0 → draw
+    }
+
+    @Test
+    fun vs_ai_tie_goes_to_sudden_death_not_a_draw() {
+        val engine = GameEngine().apply { allowDraw = false } // vs AI
+        var guard = 0
+        while (engine.state.phase != MatchPhase.MATCH_OVER && guard++ < 50) {
+            val disc = engine.discsOf(engine.state.turn).first()
+            engine.flick(disc.id, Vec2(0f, if (engine.state.turn == Team.A) -20f else 20f), ShotType.GROUND)
+            engine.settleTurn()
+        }
+        // No goals were scored, so a golden-goal match never ends — it must still be playing past the limit.
+        assertEquals(MatchPhase.AIMING, engine.state.phase)
+        assertTrue(engine.state.turnNumber > Rules.TURN_LIMIT)
     }
 
     @Test

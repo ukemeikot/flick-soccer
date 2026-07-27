@@ -13,7 +13,10 @@ import io.github.ukemeikot.flicksoccer.domain.physics.PhysicsWorld
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /** A candidate flick the AI evaluates by cloning the world and simulating it. */
 data class ShotCandidate(
@@ -42,9 +45,12 @@ class AiPlanner(
         val candidates = enumerate(state, team, difficulty, rng)
         if (candidates.isEmpty()) return null
 
-        val scored = candidates.map { c ->
-            val result = simulate(state, team, c)
-            AiDecision(c, evaluator.score(result, team))
+        // Score with a wall-clock budget; if we run out, decide from what we have (§6).
+        val start = TimeSource.Monotonic.markNow()
+        val scored = ArrayList<AiDecision>(candidates.size)
+        for (c in candidates) {
+            scored += AiDecision(c, evaluator.score(simulate(state, team, c), team))
+            if (start.elapsedNow() > BUDGET) break
         }
         return select(scored, difficulty, rng)
     }
@@ -53,11 +59,16 @@ class AiPlanner(
         val discs = state.bodies.filter { it.team() == team }
         val dirCount = if (difficulty == Difficulty.EASY) 12 else 24
         val powers = floatArrayOf(0.55f, 0.8f, 1.0f)
-        val shotTypes = if (difficulty == Difficulty.EASY) listOf(ShotType.GROUND)
-        else listOf(ShotType.GROUND, ShotType.CHIP)
+        val chipsAllowed = difficulty != Difficulty.EASY
 
-        val all = ArrayList<ShotCandidate>(discs.size * dirCount * powers.size * shotTypes.size)
+        val all = ArrayList<ShotCandidate>(discs.size * dirCount * powers.size * 2)
         for (disc in discs) {
+            // Corridor pruning: chips only matter when a defender blocks the ground path (§6).
+            val shotTypes = if (chipsAllowed && chipWorthwhile(state, team, disc.position)) {
+                listOf(ShotType.GROUND, ShotType.CHIP)
+            } else {
+                listOf(ShotType.GROUND)
+            }
             for (i in 0 until dirCount) {
                 val a = 2f * PI.toFloat() * i / dirCount
                 val dirX = cos(a); val dirY = sin(a)
@@ -73,6 +84,23 @@ class AiPlanner(
             Difficulty.MEDIUM -> all.shuffled(rng).take(200)
             Difficulty.HARD -> all
         }
+    }
+
+    /** True when an opponent disc sits in the corridor from [from] to the target goal mouth. */
+    private fun chipWorthwhile(state: MatchState, team: Team, from: Vec2): Boolean {
+        val pitch = state.pitch
+        val target = Vec2(pitch.halfWidth, if (team == Team.A) pitch.height else 0f)
+        return state.bodies.any { it.team() == team.opponent() && distToSegment(it.position, from, target) < CORRIDOR_HALF_WIDTH }
+    }
+
+    private fun distToSegment(p: Vec2, a: Vec2, b: Vec2): Float {
+        val abx = b.x - a.x; val aby = b.y - a.y
+        val lenSq = abx * abx + aby * aby
+        if (lenSq < 1e-4f) return sqrt((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y))
+        var t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq
+        t = t.coerceIn(0f, 1f)
+        val cx = a.x + t * abx; val cy = a.y + t * aby
+        return sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
     }
 
     private fun simulate(state: MatchState, team: Team, c: ShotCandidate): SimResult {
@@ -125,6 +153,8 @@ class AiPlanner(
 
     companion object {
         const val MAX_SIM_STEPS = 480 // ~4 s at 1/120 s steps
+        private val BUDGET = 1.5.seconds
+        private const val CORRIDOR_HALF_WIDTH = 9f // ball + disc radii ⇒ a real block
     }
 }
 
