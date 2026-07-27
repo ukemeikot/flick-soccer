@@ -33,3 +33,7 @@ Thumbs.db
 
 # Compose Desktop native distributions
 composeApp/build/compose/
+
+# JVM crash logs
+hs_err_pid*.log
+replay_pid*.log
