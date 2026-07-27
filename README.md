@@ -4,7 +4,14 @@ A turn-based physics soccer game built with **Kotlin Multiplatform** and **Compo
 
 Targets: **Android · iOS · Desktop (JVM)**.
 
-> Status: **M0 — scaffold**. The app boots straight to the menu (no login/account gate) and navigates Menu → Game. The physics engine, OpenGL renderer, and AI are in place as skeletons and are filled in across the milestones in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+> Status: **M4 — playable match** (Android + Desktop). Boots straight to the menu (no login/account
+> gate); local 2-player is fully playable — slingshot aiming with a 3D-picked disc, Ground/Chip shots,
+> real physics, scoring, goal reset, and match-over. A lightweight stopgap AI keeps vs-AI moving until
+> the full simulation planner lands in M5. Desktop unit tests: 24 green. See
+> [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap (M5 AI, M6 polish/sound, M7 hardening).
+>
+> **Try it:** `./gradlew :composeApp:run` (desktop) or run the `composeApp` config on an Android
+> device/emulator. Drag back from one of your discs and release to flick.
 
 ---
 

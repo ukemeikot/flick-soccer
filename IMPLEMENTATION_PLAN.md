@@ -35,13 +35,17 @@ Each milestone ends with the project **compiling** and its **tests green**.
 
 ## 2. Milestones
 
-### M0 — Scaffold ✅ (this commit)
+> **Progress:** M0–M4 complete and pushed. Local 2-player is playable on Desktop and Android; desktop
+> unit tests are green (24). Next: **M5 (AI)**. iOS renderer host is still a placeholder (M3 for iOS
+> pending a Mac). GL visuals are compile- and launch-verified but not yet visually QA'd by a human.
+
+### M0 — Scaffold ✅
 KMP Compose Multiplatform project targeting Android/iOS/Desktop; version catalog; Koin wired;
 sealed-class Menu → Game → Settings navigation; the app boots straight to the menu with **no auth gate**;
 full package structure from §7 of the brief in place with compiling skeletons for physics, engine, AI, GL, renderer.
 - **Accept:** `./gradlew :composeApp:desktopRun` opens the menu; `:composeApp:desktopTest` passes; Android configures.
 
-### M1 — Physics core (1–1.5 days)
+### M1 — Physics core ✅
 `Vec2 / Body / PhysicsWorld`: plane integration, ball vertical axis (gravity, ground bounce, air vs ground
 damping), wall + disc–disc + disc–ball (2.5D) collisions, chip loft transfer, crossbar rule, sleep detection,
 goal detection. Collision events returned from `step()` for the ViewModel to fire effects.
@@ -53,20 +57,20 @@ goal detection. Collision events returned from `step()` for the ViewModel to fir
   runs → identical states incl. `z`).
 - **Accept:** all physics tests pass.
 
-### M2 — GL foundation, desktop-first (1.5–2 days)
+### M2 — GL foundation, desktop-first ✅
 `Gl` interface + math lib (`Mat4`/`Vec3`, perspective/lookAt/unproject, unit-tested: ray-plane round-trips,
 matrix identities); **LWJGL** desktop `actual` + `AWTGLCanvas` in `SwingPanel`; shader preamble system;
 procedural meshes (quad, cylinder, UV sphere, goal frame); `SceneRenderer` draws a static kickoff scene with
 Blinn-Phong lighting + blob shadows at 60fps.
 - **Accept:** desktop shows the lit 3D pitch with all bodies; camera unproject tests green.
 
-### M3 — GL on Android & iOS (1–1.5 days)
+### M3 — GL on Android ✅ (iOS host pending a Mac)
 `GLES30` actual + `GLSurfaceView` host (Android); K/N GLES cinterop actual + `GLKView` host (iOS);
 Android GL context-loss rebuild (all meshes/shaders are procedural, so rebuild is cheap).
 - **Accept:** the same static scene renders on Android device/emulator and iOS simulator; rotation/backgrounding
   doesn't crash or leak.
 
-### M4 — Playable match (1.5 days)
+### M4 — Playable match ✅
 `RenderSnapshot` pipeline (fixed-timestep loop → atomic snapshot → GL thread); 3D picking + slingshot aiming
 with in-scene aim ray, power ring, Ground/Chip toggle; flick launches disc; turn alternation; scoring +
 formation reset; turn limit + match end; goal-cam punch.
