@@ -1,10 +1,12 @@
 package io.github.ukemeikot.flicksoccer.util
 
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.tan
 
 /**
  * A 4x4 column-major matrix (OpenGL convention) backed by a 16-element [FloatArray]. Column-major
- * means element (row r, col c) is at index c * 4 + r. Provides just what the camera/renderer needs.
+ * means element (row r, col c) is at index c * 4 + r.
  */
 class Mat4(val m: FloatArray = identityArray()) {
 
@@ -33,6 +35,35 @@ class Mat4(val m: FloatArray = identityArray()) {
         return if (w != 0f && w != 1f) Vec3(x / w, y / w, z / w) else Vec3(x, y, z)
     }
 
+    /** Full 4x4 inverse (adjugate / determinant). Returns null when singular. */
+    fun inverse(): Mat4? {
+        val a = m
+        val inv = FloatArray(16)
+
+        inv[0] = a[5]*a[10]*a[15] - a[5]*a[11]*a[14] - a[9]*a[6]*a[15] + a[9]*a[7]*a[14] + a[13]*a[6]*a[11] - a[13]*a[7]*a[10]
+        inv[4] = -a[4]*a[10]*a[15] + a[4]*a[11]*a[14] + a[8]*a[6]*a[15] - a[8]*a[7]*a[14] - a[12]*a[6]*a[11] + a[12]*a[7]*a[10]
+        inv[8] = a[4]*a[9]*a[15] - a[4]*a[11]*a[13] - a[8]*a[5]*a[15] + a[8]*a[7]*a[13] + a[12]*a[5]*a[11] - a[12]*a[7]*a[9]
+        inv[12] = -a[4]*a[9]*a[14] + a[4]*a[10]*a[13] + a[8]*a[5]*a[14] - a[8]*a[6]*a[13] - a[12]*a[5]*a[10] + a[12]*a[6]*a[9]
+        inv[1] = -a[1]*a[10]*a[15] + a[1]*a[11]*a[14] + a[9]*a[2]*a[15] - a[9]*a[3]*a[14] - a[13]*a[2]*a[11] + a[13]*a[3]*a[10]
+        inv[5] = a[0]*a[10]*a[15] - a[0]*a[11]*a[14] - a[8]*a[2]*a[15] + a[8]*a[3]*a[14] + a[12]*a[2]*a[11] - a[12]*a[3]*a[10]
+        inv[9] = -a[0]*a[9]*a[15] + a[0]*a[11]*a[13] + a[8]*a[1]*a[15] - a[8]*a[3]*a[13] - a[12]*a[1]*a[11] + a[12]*a[3]*a[9]
+        inv[13] = a[0]*a[9]*a[14] - a[0]*a[10]*a[13] - a[8]*a[1]*a[14] + a[8]*a[2]*a[13] + a[12]*a[1]*a[10] - a[12]*a[2]*a[9]
+        inv[2] = a[1]*a[6]*a[15] - a[1]*a[7]*a[14] - a[5]*a[2]*a[15] + a[5]*a[3]*a[14] + a[13]*a[2]*a[7] - a[13]*a[3]*a[6]
+        inv[6] = -a[0]*a[6]*a[15] + a[0]*a[7]*a[14] + a[4]*a[2]*a[15] - a[4]*a[3]*a[14] - a[12]*a[2]*a[7] + a[12]*a[3]*a[6]
+        inv[10] = a[0]*a[5]*a[15] - a[0]*a[7]*a[13] - a[4]*a[1]*a[15] + a[4]*a[3]*a[13] + a[12]*a[1]*a[7] - a[12]*a[3]*a[5]
+        inv[14] = -a[0]*a[5]*a[14] + a[0]*a[6]*a[13] + a[4]*a[1]*a[14] - a[4]*a[2]*a[13] - a[12]*a[1]*a[6] + a[12]*a[2]*a[5]
+        inv[3] = -a[1]*a[6]*a[11] + a[1]*a[7]*a[10] + a[5]*a[2]*a[11] - a[5]*a[3]*a[10] - a[9]*a[2]*a[7] + a[9]*a[3]*a[6]
+        inv[7] = a[0]*a[6]*a[11] - a[0]*a[7]*a[10] - a[4]*a[2]*a[11] + a[4]*a[3]*a[10] + a[8]*a[2]*a[7] - a[8]*a[3]*a[6]
+        inv[11] = -a[0]*a[5]*a[11] + a[0]*a[7]*a[9] + a[4]*a[1]*a[11] - a[4]*a[3]*a[9] - a[8]*a[1]*a[7] + a[8]*a[3]*a[5]
+        inv[15] = a[0]*a[5]*a[10] - a[0]*a[6]*a[9] - a[4]*a[1]*a[10] + a[4]*a[2]*a[9] + a[8]*a[1]*a[6] - a[8]*a[2]*a[5]
+
+        var det = a[0]*inv[0] + a[1]*inv[4] + a[2]*inv[8] + a[3]*inv[12]
+        if (det == 0f) return null
+        det = 1f / det
+        for (i in 0 until 16) inv[i] *= det
+        return Mat4(inv)
+    }
+
     companion object {
         fun identityArray() = floatArrayOf(
             1f, 0f, 0f, 0f,
@@ -42,6 +73,37 @@ class Mat4(val m: FloatArray = identityArray()) {
         )
 
         fun identity() = Mat4()
+
+        fun translation(x: Float, y: Float, z: Float) = Mat4(
+            floatArrayOf(
+                1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                x, y, z, 1f,
+            ),
+        )
+
+        fun scale(x: Float, y: Float, z: Float) = Mat4(
+            floatArrayOf(
+                x, 0f, 0f, 0f,
+                0f, y, 0f, 0f,
+                0f, 0f, z, 0f,
+                0f, 0f, 0f, 1f,
+            ),
+        )
+
+        /** Rotation about the world +z (up) axis. */
+        fun rotationZ(radians: Float): Mat4 {
+            val c = cos(radians); val s = sin(radians)
+            return Mat4(
+                floatArrayOf(
+                    c, s, 0f, 0f,
+                    -s, c, 0f, 0f,
+                    0f, 0f, 1f, 0f,
+                    0f, 0f, 0f, 1f,
+                ),
+            )
+        }
 
         /** Right-handed perspective projection (OpenGL clip space, z in [-1, 1]). */
         fun perspective(fovYRadians: Float, aspect: Float, near: Float, far: Float): Mat4 {

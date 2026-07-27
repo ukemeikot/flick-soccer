@@ -12,7 +12,7 @@ import io.github.ukemeikot.flicksoccer.ui.game.render.RenderSnapshot
 @Composable
 actual fun GameGlSurface(
     modifier: Modifier,
-    snapshot: RenderSnapshot?,
+    snapshotProvider: () -> RenderSnapshot?,
     onPointer: (PointerEventGl) -> Unit,
 ) {
     GlSurfacePlaceholder(modifier, "iOS OpenGL surface — pitch renders here (M3)")
