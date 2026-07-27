@@ -28,7 +28,7 @@ import io.github.ukemeikot.flicksoccer.domain.model.Difficulty
 import io.github.ukemeikot.flicksoccer.domain.model.MatchPhase
 import io.github.ukemeikot.flicksoccer.domain.model.ShotType
 import io.github.ukemeikot.flicksoccer.domain.model.Team
-import io.github.ukemeikot.flicksoccer.platform.gl.GameGlSurface
+import io.github.ukemeikot.flicksoccer.ui.game.render.GameCanvasScene
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -54,7 +54,7 @@ fun GameScreen(
             onPause = { viewModel.setPaused(true) },
         )
         Box(modifier = Modifier.fillMaxSize()) {
-            GameGlSurface(
+            GameCanvasScene(
                 modifier = Modifier.fillMaxSize(),
                 snapshotProvider = viewModel::renderSnapshot,
                 onPointer = viewModel::onPointer,

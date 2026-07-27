@@ -48,6 +48,7 @@ actual fun GameGlSurface(
             }
             val canvas = object : AWTGLCanvas(data) {
                 @Volatile var renderer: SceneRenderer? = null
+                private var painted = false
                 override fun initGL() {
                     GL.createCapabilities()
                     renderer = SceneRenderer(LwjglGl(), PitchSpec(), "#version 330 core")
@@ -55,6 +56,7 @@ actual fun GameGlSurface(
                 }
                 override fun paintGL() {
                     val r = renderer ?: return
+                    if (!painted) painted = true
                     r.onSurfaceResized(width.coerceAtLeast(1), height.coerceAtLeast(1))
                     r.drawFrame(providerRef.get().invoke())
                     swapBuffers()
