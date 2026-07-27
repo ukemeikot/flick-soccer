@@ -1,0 +1,35 @@
+# Claude Code local files (do not push)
+.claude/
+
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local config (machine-specific SDK paths, secrets)
+local.properties
+
+# Kotlin
+.kotlin/
+
+# IntelliJ / Android Studio / Fleet
+.idea/
+*.iml
+*.ipr
+*.iws
+.fleet/
+
+# Xcode / iOS
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata/
+Pods/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compose Desktop native distributions
+composeApp/build/compose/
