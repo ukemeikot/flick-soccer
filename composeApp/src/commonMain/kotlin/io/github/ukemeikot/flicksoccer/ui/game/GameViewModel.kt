@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.ukemeikot.flicksoccer.data.MatchHistoryRepository
 import io.github.ukemeikot.flicksoccer.data.MatchResult
+import io.github.ukemeikot.flicksoccer.domain.ai.AiPlanner
 import io.github.ukemeikot.flicksoccer.domain.engine.GameEngine
 import io.github.ukemeikot.flicksoccer.domain.engine.Rules
 import io.github.ukemeikot.flicksoccer.domain.model.AimState
@@ -22,8 +23,10 @@ import io.github.ukemeikot.flicksoccer.platform.gl.PointerEventGl
 import io.github.ukemeikot.flicksoccer.ui.game.render.BodyTransform
 import io.github.ukemeikot.flicksoccer.ui.game.render.RenderSnapshot
 import io.github.ukemeikot.flicksoccer.util.FixedTimestepClock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -64,6 +67,7 @@ class GameViewModel(
     private val audio: AudioPlayer,
     private val haptics: Haptics,
     private val history: MatchHistoryRepository,
+    private val aiPlanner: AiPlanner,
 ) : ViewModel() {
 
     private val engine = GameEngine()
@@ -221,31 +225,31 @@ class GameViewModel(
     fun setPaused(paused: Boolean) { this.paused = paused; publishState() }
     private fun isHumanTurn(): Boolean = !vsAi || engine.state.turn == Team.A
 
-    // --- Stopgap AI (replaced by AiPlanner in M5) ---------------------------------------------
+    // --- AI turn (simulation-based planner on a background dispatcher) -------------------------
 
     private fun maybeScheduleAi() {
         if (!vsAi || engine.state.turn != Team.B) return
         if (aiScheduledForTurn == engine.state.turnNumber) return
         aiScheduledForTurn = engine.state.turnNumber
-        viewModelScope.launch {
-            delay(AI_THINK_MILLIS)
-            if (engine.state.phase == MatchPhase.AIMING && engine.state.turn == Team.B) performAiFlick()
-        }
-    }
 
-    private fun performAiFlick() {
-        val ball = engine.state.bodies.firstOrNull { it.kind == BodyKind.BALL } ?: return
-        val disc = engine.discsOf(Team.B).minByOrNull {
-            val dx = it.position.x - ball.position.x; val dy = it.position.y - ball.position.y
-            dx * dx + dy * dy
-        } ?: return
-        // Drag away from the ball → launches the disc toward the ball (slingshot is opposite drag).
-        val away = Vec2(disc.position.x - ball.position.x, disc.position.y - ball.position.y).normalizedOrZero()
-        val drag = away * (Rules.MAX_DRAG_LEN * 0.85f)
-        if (engine.flick(disc.id, drag, ShotType.GROUND)) {
-            audio.play(SoundEffect.KICK)
+        val planningState = engine.state
+        val seed = planningState.turnNumber.toLong() * 1000L + planningState.scoreA * 31L + planningState.scoreB * 17L
+        viewModelScope.launch {
+            // "Thinking" delay + off-main-thread search (§6).
+            delay(AI_THINK_MILLIS)
+            val decision = withContext(Dispatchers.Default) {
+                aiPlanner.plan(planningState, Team.B, difficulty, seed)
+            }
+            // Re-check nothing changed while we planned.
+            if (engine.state.phase == MatchPhase.AIMING && engine.state.turn == Team.B &&
+                engine.state.turnNumber == planningState.turnNumber && decision != null
+            ) {
+                if (engine.flick(decision.candidate.discId, decision.candidate.dragVector, decision.candidate.shotType)) {
+                    audio.play(SoundEffect.KICK)
+                }
+                publishState()
+            }
         }
-        publishState()
     }
 
     // --- Effects & publishing ------------------------------------------------------------------
