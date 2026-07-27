@@ -58,6 +58,7 @@ fun GameScreen(
                 modifier = Modifier.fillMaxSize(),
                 snapshotProvider = viewModel::renderSnapshot,
                 onPointer = viewModel::onPointer,
+                paletteIndex = state.paletteIndex,
             )
 
             when (state.match.phase) {

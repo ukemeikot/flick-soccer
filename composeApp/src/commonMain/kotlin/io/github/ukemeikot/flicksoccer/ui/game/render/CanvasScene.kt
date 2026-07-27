@@ -34,6 +34,7 @@ fun GameCanvasScene(
     modifier: Modifier,
     snapshotProvider: () -> RenderSnapshot?,
     onPointer: (PointerEventGl) -> Unit,
+    paletteIndex: Int = 0,
     pitch: PitchSpec = PitchSpec(),
 ) {
     val camera = remember(pitch) { Camera(pitch) }
@@ -71,15 +72,15 @@ fun GameCanvasScene(
     ) {
         if (size.width <= 0f || size.height <= 0f) return@Canvas
         camera.update(size.width / size.height)
-        drawScene(camera, pitch, snap)
+        drawScene(camera, pitch, snap, paletteIndex)
     }
 }
+
+private fun Material.toColor() = Color(r, g, b)
 
 private val grassLight = Color(0xFF2E9E43)
 private val grassDark = Color(0xFF268B3A)
 private val lineColor = Color(0xFFEAF3EC)
-private val teamAColor = Color(0xFF3474F2)
-private val teamBColor = Color(0xFFEA4747)
 private val ballColor = Color(0xFFF5F5F5)
 
 private fun DrawScope.projectPoint(camera: Camera, x: Float, y: Float, z: Float): Offset {
@@ -93,13 +94,17 @@ private fun DrawScope.projectedRadius(camera: Camera, x: Float, y: Float, z: Flo
     return (c - e).getDistance().coerceAtLeast(1.5f)
 }
 
-private fun DrawScope.drawScene(camera: Camera, pitch: PitchSpec, snap: RenderSnapshot?) {
+private fun DrawScope.drawScene(camera: Camera, pitch: PitchSpec, snap: RenderSnapshot?, paletteIndex: Int) {
     // Sky/backdrop.
     drawRect(Color(0xFF0E1A12), size = size)
 
     drawPitch(camera, pitch)
     drawMarkings(camera, pitch)
     drawGoals(camera, pitch)
+
+    val idx = paletteIndex.coerceIn(0, Palettes.teamA.size - 1)
+    val teamAColor = Palettes.teamA[idx].toColor()
+    val teamBColor = Palettes.teamB[idx].toColor()
 
     val bodies = snap?.bodies ?: return
     // Painter's algorithm: far (larger y) first.

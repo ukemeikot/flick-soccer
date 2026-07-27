@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.ukemeikot.flicksoccer.data.MatchHistoryRepository
 import io.github.ukemeikot.flicksoccer.data.MatchResult
+import io.github.ukemeikot.flicksoccer.data.SettingsRepository
 import io.github.ukemeikot.flicksoccer.domain.ai.AiPlanner
 import io.github.ukemeikot.flicksoccer.domain.engine.GameEngine
 import io.github.ukemeikot.flicksoccer.domain.engine.Rules
@@ -45,6 +46,7 @@ data class GameUiState(
     val difficulty: Difficulty = Difficulty.MEDIUM,
     val isPaused: Boolean = false,
     val shotType: ShotType = ShotType.GROUND,
+    val paletteIndex: Int = 0,
 )
 
 /** One-shot effects the ViewModel emits for the View to play (sound/haptic). */
@@ -68,7 +70,10 @@ class GameViewModel(
     private val haptics: Haptics,
     private val history: MatchHistoryRepository,
     private val aiPlanner: AiPlanner,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
+
+    private var paletteIndex = 0
 
     private val engine = GameEngine()
 
@@ -99,6 +104,10 @@ class GameViewModel(
     fun startMatch(vsAi: Boolean, difficulty: Difficulty) {
         this.vsAi = vsAi
         this.difficulty = difficulty
+        // Apply persisted settings for this match.
+        audio.setEnabled(settings.soundEnabled)
+        haptics.setEnabled(settings.hapticsEnabled)
+        paletteIndex = settings.teamPalette.coerceIn(0, 3)
         shotType = ShotType.GROUND
         paused = false
         recorded = false
@@ -282,6 +291,7 @@ class GameViewModel(
             difficulty = difficulty,
             isPaused = paused,
             shotType = shotType,
+            paletteIndex = paletteIndex,
         )
     }
 
