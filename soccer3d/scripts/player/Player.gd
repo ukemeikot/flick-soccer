@@ -252,11 +252,12 @@ func _formation_target() -> Vector3:
 
 func _gk_control(delta: float) -> void:
 	var own: Vector3 = world.own_goal(team)
-	var line_z := own.z - attack_sign() * 1.2
-	var target := Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.0, line_z)
+	# Stand just in FRONT of the own goal line (inside the pitch), not behind it.
+	var line_z := own.z + attack_sign() * 1.2
+	var target := Vector3(clampf(ball.global_position.x, -2.8, 2.8), 0.0, line_z)
 	var dist_to_goal := (ball.global_position - own).length()
 	if dist_to_goal < 6.5:
-		target = Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.0, line_z - attack_sign() * 2.5)
+		target = Vector3(clampf(ball.global_position.x, -2.8, 2.8), 0.0, line_z + attack_sign() * 2.5)
 	var to_t := target - global_position
 	to_t.y = 0.0
 	_apply_movement(to_t.normalized() if to_t.length() > 0.3 else Vector3.ZERO, dist_to_goal < 8.0, delta)

@@ -28,6 +28,7 @@ var players: Array[Player] = []
 var camera: BroadcastCamera
 var hud: Hud
 var _marker: MeshInstance3D
+var _forced_active: Player = null # manual player-switch override (Home)
 
 var phase := Phase.KICKOFF
 var half := 1
@@ -75,6 +76,8 @@ func _physics_process(delta: float) -> void:
 				_set_frozen(false)
 				phase = Phase.PLAYING
 		Phase.PLAYING:
+			if Input.is_action_just_pressed("switch_player") or Touch.consume_switch():
+				_cycle_active()
 			_update_roles()
 			time_left = maxf(time_left - delta, 0.0)
 			hud.set_clock(time_left, half)
@@ -106,10 +109,31 @@ func _update_roles() -> void:
 		_marker.global_position = human.global_position + Vector3(0, 2.35, 0)
 
 func _pick_active(team: int) -> Player:
+	# A player in possession always takes control (and clears any manual pick for Home).
 	for p in players:
 		if p.team == team and not p.is_gk and p.has_possession():
+			if team == Player.HOME:
+				_forced_active = null
 			return p
+	if team == Player.HOME and _forced_active != null:
+		return _forced_active
 	return _nearest_outfielder(team)
+
+func _home_outfielders() -> Array[Player]:
+	var a: Array[Player] = []
+	for p in players:
+		if p.team == Player.HOME and not p.is_gk:
+			a.append(p)
+	return a
+
+func _cycle_active() -> void:
+	var outs := _home_outfielders()
+	if outs.is_empty():
+		return
+	outs.sort_custom(func(a, b): return a.global_position.distance_to(ball.global_position) < b.global_position.distance_to(ball.global_position))
+	var cur := _forced_active if _forced_active != null else _pick_active(Player.HOME)
+	var idx := outs.find(cur)
+	_forced_active = outs[(idx + 1) % outs.size()]
 
 func _nearest_outfielder(team: int) -> Player:
 	var best: Player = null
@@ -158,6 +182,7 @@ func opponent_within(p: Player, r: float) -> bool:
 # --- Match flow -----------------------------------------------------------------------------
 
 func _kickoff() -> void:
+	_forced_active = null
 	_reset_positions()
 	ball.linear_velocity = Vector3.ZERO
 	ball.angular_velocity = Vector3.ZERO
@@ -306,8 +331,9 @@ func _build_end(z_line: float, scoring_team: int) -> void:
 	# Back wall behind the goal to stop the ball.
 	_add_wall(Vector3(0, 1, z_line + s * 3.0), Vector3(PITCH_WIDTH, 2, 0.5))
 
-	# Cosmetic frame.
+	# Cosmetic frame + net.
 	_add_goal(Vector3(0, 0, z_line))
+	_add_net(z_line)
 
 	# Goal sensor in the mouth.
 	var area := Area3D.new()
@@ -396,6 +422,29 @@ func _line_mat() -> StandardMaterial3D:
 	return m
 
 func _visual_box(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
+	var m := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	m.mesh = b
+	m.material_override = mat
+	m.position = pos
+	add_child(m)
+
+func _add_net(z_line: float) -> void:
+	var s := signf(z_line)
+	var height := 2.2
+	var depth := 1.6
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1, 1, 1, 0.25)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var back_z := z_line + s * depth
+	_net_panel(Vector3(MOUTH + 0.3, height, 0.05), Vector3(0, height / 2.0, back_z), mat)          # back
+	_net_panel(Vector3(MOUTH + 0.3, 0.05, depth), Vector3(0, height, z_line + s * depth / 2.0), mat) # roof
+	_net_panel(Vector3(0.05, height, depth), Vector3(MOUTH / 2.0, height / 2.0, z_line + s * depth / 2.0), mat)
+	_net_panel(Vector3(0.05, height, depth), Vector3(-MOUTH / 2.0, height / 2.0, z_line + s * depth / 2.0), mat)
+
+func _net_panel(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
 	var m := MeshInstance3D.new()
 	var b := BoxMesh.new()
 	b.size = size

@@ -11,6 +11,7 @@ func _ready() -> void:
 	_bind("kick_pass", [KEY_J, KEY_SPACE])
 	_bind("kick_shoot", [KEY_K])
 	_bind("tackle", [KEY_L])
+	_bind("switch_player", [KEY_Q, KEY_TAB])
 
 func _bind(action: String, keys: Array) -> void:
 	if not InputMap.has_action(action):
