@@ -1,8 +1,8 @@
 extends CharacterBody3D
 class_name Player
-## A footballer. The same body is driven by human input (the active Home player) or by AI, and
-## goalkeepers use a dedicated behavior. Handles movement, possession/dribble, pass (with teammate
-## targeting), charged shot, headers, tackle lunge, sprint + stamina.
+## A footballer with a simple humanoid body (head/torso/arms/legs) in team kit colors with a shirt
+## number, plus a run animation. Driven by human input (keyboard + on-screen touch) when active, or
+## by AI; goalkeepers use a dedicated behavior. Feet sit at the node origin (y = 0).
 
 const HOME := 0
 const AWAY := 1
@@ -23,57 +23,109 @@ const CHARGE_RATE := 1.5
 const KICK_COOLDOWN := 0.35
 const LUNGE_TIME := 0.28
 const HIGH_BALL_Y := 1.0
+const SKIN := Color(0.86, 0.66, 0.5)
+const SOCKS := Color(0.11, 0.11, 0.14)
 
 # Set by the match before add_child:
 var ball: Ball
-var world                      # GameMatch (untyped to avoid cyclic class refs)
+var world
 var team := HOME
 var is_gk := false
 var home_pos := Vector3.ZERO
 var kit_color := Color(0.2, 0.45, 0.95)
-var skill := 0.7               # 0..1 AI quality (difficulty)
+var number := 1
+var skill := 0.7
 
 # Set each frame by the match:
 var is_human := false
-var role_chase := false        # this team's nearest outfielder to the ball
+var role_chase := false
 
 var facing := Vector3(0.0, 0.0, -1.0)
 var stamina := 1.0
 var charge := 0.0
 var _kick_cooldown := 0.0
 var _lunge := 0.0
-var _controllable := false     # movement allowed (false during kickoff freeze)
+var _controllable := false
+var _anim_phase := 0.0
+var _leg_l: Node3D
+var _leg_r: Node3D
+var _arm_l: Node3D
+var _arm_r: Node3D
 
 func attack_sign() -> float:
-	return 1.0 if team == HOME else -1.0 # HOME attacks +Z
+	return 1.0 if team == HOME else -1.0
 
 func _ready() -> void:
-	var mesh := MeshInstance3D.new()
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.4
-	capsule.height = 1.8
-	mesh.mesh = capsule
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = kit_color
-	mesh.material_override = mat
-	add_child(mesh)
-
-	var nose := MeshInstance3D.new()
-	var nose_mesh := BoxMesh.new()
-	nose_mesh.size = Vector3(0.3, 0.3, 0.5)
-	nose.mesh = nose_mesh
-	var nose_mat := StandardMaterial3D.new()
-	nose_mat.albedo_color = kit_color.darkened(0.4)
-	nose.material_override = nose_mat
-	nose.position = Vector3(0.0, 0.3, -0.6)
-	add_child(nose)
-
+	_build_body()
 	var col := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.4
 	shape.height = 1.8
 	col.shape = shape
+	col.position = Vector3(0, 0.9, 0)
 	add_child(col)
+
+func _build_body() -> void:
+	var jersey := kit_color
+	var shorts := kit_color.darkened(0.5)
+
+	_add_box(Vector3(0.48, 0.30, 0.27), Vector3(0, 0.92, 0), shorts)          # shorts/hips
+	_add_box(Vector3(0.50, 0.60, 0.26), Vector3(0, 1.18, 0), jersey)          # torso
+	_add_sphere(0.15, Vector3(0, 1.62, 0), SKIN)                              # head
+
+	_leg_l = _limb(Vector3(-0.13, 0.84, 0), Vector3(0.16, 0.82, 0.18), SOCKS)
+	_leg_r = _limb(Vector3(0.13, 0.84, 0), Vector3(0.16, 0.82, 0.18), SOCKS)
+	_arm_l = _limb(Vector3(-0.34, 1.42, 0), Vector3(0.13, 0.55, 0.13), jersey)
+	_arm_r = _limb(Vector3(0.34, 1.42, 0), Vector3(0.13, 0.55, 0.13), SKIN)
+
+	# Shirt number on the back (local +Z is behind, since forward is -Z).
+	var label := Label3D.new()
+	label.text = str(number)
+	label.font_size = 72
+	label.pixel_size = 0.006
+	label.outline_size = 12
+	label.modulate = Color.WHITE
+	label.outline_modulate = Color(0, 0, 0, 0.8)
+	label.position = Vector3(0, 1.2, 0.16)
+	label.rotation_degrees = Vector3(0, 180, 0)
+	add_child(label)
+
+func _limb(hip: Vector3, size: Vector3, color: Color) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.position = hip
+	add_child(pivot)
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.material_override = _mat(color)
+	mesh.position = Vector3(0, -size.y / 2.0, 0) # hang from the pivot
+	pivot.add_child(mesh)
+	return pivot
+
+func _add_box(size: Vector3, pos: Vector3, color: Color) -> void:
+	var m := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	m.mesh = b
+	m.material_override = _mat(color)
+	m.position = pos
+	add_child(m)
+
+func _add_sphere(r: float, pos: Vector3, color: Color) -> void:
+	var m := MeshInstance3D.new()
+	var s := SphereMesh.new()
+	s.radius = r
+	s.height = r * 2.0
+	m.mesh = s
+	m.material_override = _mat(color)
+	m.position = pos
+	add_child(m)
+
+func _mat(c: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = c
+	return mat
 
 func set_frozen(frozen: bool) -> void:
 	_controllable = not frozen
@@ -98,7 +150,7 @@ func _physics_process(delta: float) -> void:
 	if is_human or role_chase or is_gk:
 		_dribble()
 
-# --- Movement -------------------------------------------------------------------------------
+# --- Movement + animation -------------------------------------------------------------------
 
 func _apply_movement(dir: Vector3, sprint: bool, delta: float) -> void:
 	var moving := dir.length() > 0.1
@@ -120,21 +172,48 @@ func _apply_movement(dir: Vector3, sprint: bool, delta: float) -> void:
 		stamina = maxf(stamina - STAMINA_DRAIN * delta, 0.0)
 	else:
 		stamina = minf(stamina + STAMINA_REGEN * delta, 1.0)
+	_animate(moving, delta)
 
-# --- Human ----------------------------------------------------------------------------------
+func _animate(moving: bool, delta: float) -> void:
+	if _leg_l == null:
+		return
+	var swing := 0.0
+	if moving:
+		_anim_phase += delta * (7.0 + (velocity.length() / sprint_speed) * 8.0)
+		swing = sin(_anim_phase) * 0.7
+	else:
+		_anim_phase = 0.0
+	_leg_l.rotation.x = lerpf(_leg_l.rotation.x, swing, 0.3)
+	_leg_r.rotation.x = lerpf(_leg_r.rotation.x, -swing, 0.3)
+	_arm_l.rotation.x = lerpf(_arm_l.rotation.x, -swing * 0.6, 0.3)
+	_arm_r.rotation.x = lerpf(_arm_r.rotation.x, swing * 0.6, 0.3)
+
+# --- Human (keyboard + touch) ---------------------------------------------------------------
 
 func _human_control(delta: float) -> void:
-	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var dir := Vector3(input.x, 0.0, input.y)
-	_apply_movement(dir, Input.is_action_pressed("sprint"), delta)
-	if Input.is_action_pressed("kick_shoot"):
+	var kb := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var mv := Vector2(kb.x + Touch.move.x, kb.y + Touch.move.y)
+	if mv.length() > 1.0:
+		mv = mv.normalized()
+	_apply_movement(Vector3(mv.x, 0.0, mv.y), Input.is_action_pressed("sprint") or Touch.sprint, delta)
+
+	if Input.is_action_pressed("kick_shoot") or Touch.shoot_held:
 		charge = minf(charge + CHARGE_RATE * delta, 1.0)
-	if Input.is_action_just_released("kick_shoot"):
+	var released := Input.is_action_just_released("kick_shoot")
+	if Touch.consume_shoot_released():
+		released = true
+	if released:
 		_shoot(charge)
 		charge = 0.0
-	if Input.is_action_just_pressed("kick_pass"):
+	var do_pass := Input.is_action_just_pressed("kick_pass")
+	if Touch.consume_pass():
+		do_pass = true
+	if do_pass:
 		_pass()
-	if Input.is_action_just_pressed("tackle"):
+	var do_tackle := Input.is_action_just_pressed("tackle")
+	if Touch.consume_tackle():
+		do_tackle = true
+	if do_tackle:
 		_lunge = LUNGE_TIME
 
 # --- AI -------------------------------------------------------------------------------------
@@ -148,8 +227,7 @@ func _ai_control(delta: float) -> void:
 		var to_goal := goal - global_position
 		to_goal.y = 0.0
 		_apply_movement(to_goal.normalized(), false, delta)
-		var in_range := to_goal.length() < lerpf(11.0, 17.0, skill)
-		if in_range and absf(global_position.x) < 8.0:
+		if to_goal.length() < lerpf(11.0, 17.0, skill) and absf(global_position.x) < 8.0:
 			_shoot(0.6 + skill * 0.3)
 		elif world.opponent_within(self, 2.6):
 			_pass()
@@ -159,7 +237,6 @@ func _ai_control(delta: float) -> void:
 		_apply_movement(to_ball.normalized(), to_ball.length() > 6.0, delta)
 		return
 
-	# Hold formation, shifted toward the ball.
 	var target := _formation_target()
 	var to_t := target - global_position
 	to_t.y = 0.0
@@ -167,27 +244,24 @@ func _ai_control(delta: float) -> void:
 	_apply_movement(dir, false, delta)
 
 func _formation_target() -> Vector3:
-	var t := home_pos
-	t.x = clampf(home_pos.x + ball.global_position.x * 0.25, -HALF_W + 1.0, HALF_W - 1.0)
-	t.z = clampf(home_pos.z + ball.global_position.z * 0.30, -HALF_L + 1.0, HALF_L - 1.0)
-	return Vector3(t.x, 0.9, t.z)
-
-# --- Goalkeeper -----------------------------------------------------------------------------
+	return Vector3(
+		clampf(home_pos.x + ball.global_position.x * 0.25, -HALF_W + 1.0, HALF_W - 1.0),
+		0.0,
+		clampf(home_pos.z + ball.global_position.z * 0.30, -HALF_L + 1.0, HALF_L - 1.0),
+	)
 
 func _gk_control(delta: float) -> void:
 	var own: Vector3 = world.own_goal(team)
-	var line_z := own.z - attack_sign() * 1.2 # just in front of own goal
-	var target := Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.9, line_z)
+	var line_z := own.z - attack_sign() * 1.2
+	var target := Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.0, line_z)
 	var dist_to_goal := (ball.global_position - own).length()
 	if dist_to_goal < 6.5:
-		# Rush out a little to close the angle.
-		target = Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.9, line_z - attack_sign() * 2.5)
+		target = Vector3(clampf(ball.global_position.x, -3.0, 3.0), 0.0, line_z - attack_sign() * 2.5)
 	var to_t := target - global_position
 	to_t.y = 0.0
-	var dir := to_t.normalized() if to_t.length() > 0.3 else Vector3.ZERO
-	_apply_movement(dir, dist_to_goal < 8.0, delta)
+	_apply_movement(to_t.normalized() if to_t.length() > 0.3 else Vector3.ZERO, dist_to_goal < 8.0, delta)
 	if has_possession():
-		_pass() # clear it
+		_pass()
 
 # --- Ball actions ---------------------------------------------------------------------------
 

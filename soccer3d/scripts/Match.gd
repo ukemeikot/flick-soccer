@@ -58,6 +58,7 @@ func _ready() -> void:
 	hud.world = self
 	layer.add_child(hud)
 	hud.set_score(0, 0)
+	layer.add_child(TouchControls.new()) # on-screen controls (mobile only)
 
 	_kickoff()
 
@@ -160,7 +161,7 @@ func _kickoff() -> void:
 
 func _reset_positions() -> void:
 	for p in players:
-		p.global_position = p.home_pos + Vector3(0, 0.9, 0)
+		p.global_position = p.home_pos
 		p.velocity = Vector3.ZERO
 
 func _on_goal_scored(body: Node, scoring_team: int) -> void:
@@ -222,19 +223,21 @@ func _set_frozen(frozen: bool) -> void:
 # --- Spawning -------------------------------------------------------------------------------
 
 func _spawn_team(team: int, kit: Color) -> void:
-	for slot in FORMATION:
+	for i in FORMATION.size():
+		var slot: Dictionary = FORMATION[i]
 		var pos: Vector3 = slot["pos"]
 		if team == Player.AWAY:
 			pos = Vector3(pos.x, pos.y, -pos.z) # mirror to +Z half
 		var p := Player.new()
 		p.team = team
 		p.is_gk = slot["gk"]
+		p.number = i + 1
 		p.home_pos = Vector3(pos.x, 0.0, pos.z)
 		p.kit_color = kit.lightened(0.35) if slot["gk"] else kit
 		p.skill = MatchConfig.ai_skill()
 		p.ball = ball
 		p.world = self
-		p.position = Vector3(pos.x, 0.9, pos.z)
+		p.position = Vector3(pos.x, 0.0, pos.z)
 		add_child(p)
 		players.append(p)
 
@@ -279,6 +282,9 @@ func _build_pitch() -> void:
 
 	_build_end(HALF_L, Player.HOME)   # HOME attacks +Z, so +Z goal = HOME scores
 	_build_end(-HALF_L, Player.AWAY)
+
+	_build_markings()
+	_build_stands()
 
 func _build_end(z_line: float, scoring_team: int) -> void:
 	var s := signf(z_line)
@@ -334,6 +340,60 @@ func _add_goal(base: Vector3) -> void:
 	bar.material_override = mat
 	bar.position = base + Vector3(0, height, 0)
 	add_child(bar)
+
+func _build_markings() -> void:
+	var y := 0.03
+	# Boundary.
+	_line(Vector3(0, y, HALF_L - 0.3), Vector3(PITCH_WIDTH - 0.6, 0.04, 0.15))
+	_line(Vector3(0, y, -(HALF_L - 0.3)), Vector3(PITCH_WIDTH - 0.6, 0.04, 0.15))
+	_line(Vector3(HALF_W - 0.3, y, 0), Vector3(0.15, 0.04, PITCH_LENGTH - 0.6))
+	_line(Vector3(-(HALF_W - 0.3), y, 0), Vector3(0.15, 0.04, PITCH_LENGTH - 0.6))
+	# Halfway line.
+	_line(Vector3(0, y, 0), Vector3(PITCH_WIDTH - 0.6, 0.04, 0.15))
+	# Center circle.
+	var circle := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 2.9
+	torus.outer_radius = 3.05
+	circle.mesh = torus
+	circle.material_override = _line_mat()
+	circle.rotation_degrees = Vector3(90, 0, 0)
+	circle.position = Vector3(0, y, 0)
+	add_child(circle)
+	# Penalty boxes.
+	for zs in [1.0, -1.0]:
+		var gz: float = HALF_L * zs
+		var depth := 6.0
+		var boxw := 12.0
+		_line(Vector3(0, y, gz - zs * depth), Vector3(boxw, 0.04, 0.15))
+		_line(Vector3(boxw / 2.0, y, gz - zs * depth / 2.0), Vector3(0.15, 0.04, depth))
+		_line(Vector3(-boxw / 2.0, y, gz - zs * depth / 2.0), Vector3(0.15, 0.04, depth))
+
+func _build_stands() -> void:
+	var mat := _mat(Color(0.32, 0.35, 0.4))
+	for xs in [1.0, -1.0]:
+		for tier in range(3):
+			var x: float = (HALF_W + 1.5 + tier * 1.3) * xs
+			var h := 1.2 + tier * 1.0
+			_visual_box(Vector3(1.3, h, PITCH_LENGTH), Vector3(x, h / 2.0, 0), mat)
+
+func _line(pos: Vector3, size: Vector3) -> void:
+	_visual_box(size, pos, _line_mat())
+
+func _line_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.95, 0.97, 0.95)
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m
+
+func _visual_box(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
+	var m := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	m.mesh = b
+	m.material_override = mat
+	m.position = pos
+	add_child(m)
 
 func _mat(c: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()

@@ -1,0 +1,57 @@
+extends Control
+class_name TouchControls
+## On-screen controls for mobile: a left virtual joystick + right action buttons (Pass / Shoot /
+## Sprint / Tackle). Visible only on touchscreens; drives the Touch singleton.
+
+func _ready() -> void:
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visible = DisplayServer.is_touchscreen_available()
+	if not visible:
+		return
+
+	var joy := TouchJoystick.new()
+	_place_bl(joy, 170, 170, 40, 40)
+	add_child(joy)
+
+	# Right-hand action cluster.
+	add_child(_shoot_button())
+	add_child(_hold_button("SPRINT", 92, 92, 240, 150, func(d): Touch.sprint = d))
+	add_child(_tap_button("PASS", 100, 100, 250, 40, func(): Touch.press_pass()))
+	add_child(_tap_button("TACKLE", 92, 92, 130, 150, func(): Touch.press_tackle()))
+
+func _shoot_button() -> Button:
+	# Big shoot button (hold to charge, release to fire).
+	return _hold_button("SHOOT", 120, 120, 40, 40, func(d): Touch.set_shoot(d))
+
+func _tap_button(text: String, w: int, h: int, mx: int, my: int, cb: Callable) -> Button:
+	var b := _make_button(text, w, h, mx, my)
+	b.pressed.connect(cb)
+	return b
+
+func _hold_button(text: String, w: int, h: int, mx: int, my: int, cb: Callable) -> Button:
+	var b := _make_button(text, w, h, mx, my)
+	b.button_down.connect(func(): cb.call(true))
+	b.button_up.connect(func(): cb.call(false))
+	return b
+
+func _make_button(text: String, w: int, h: int, mx: int, my: int) -> Button:
+	var b := Button.new()
+	b.text = text
+	_place_br(b, w, h, mx, my)
+	b.add_theme_font_size_override("font_size", 16)
+	return b
+
+func _place_bl(c: Control, w: int, h: int, mx: int, my: int) -> void:
+	c.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	c.offset_left = mx
+	c.offset_right = mx + w
+	c.offset_top = -(h + my)
+	c.offset_bottom = -my
+
+func _place_br(c: Control, w: int, h: int, mx: int, my: int) -> void:
+	c.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	c.offset_left = -(w + mx)
+	c.offset_right = -mx
+	c.offset_top = -(h + my)
+	c.offset_bottom = -my
