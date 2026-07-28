@@ -8,6 +8,7 @@ var player: Player
 
 var _score_label: Label
 var _clock_label: Label
+var _info_label: Label
 var _stamina_fill: ColorRect
 var _power_bar: Control
 var _power_fill: ColorRect
@@ -35,6 +36,12 @@ func _ready() -> void:
 	_clock_label.position = Vector2(0, 48)
 	add_child(_clock_label)
 
+	_info_label = _make_label("", 16)
+	_info_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info_label.position = Vector2(0, 74)
+	add_child(_info_label)
+
 	# Stamina (top-left).
 	var stam_bg := ColorRect.new()
 	stam_bg.color = Color(0, 0, 0, 0.4)
@@ -61,7 +68,7 @@ func _ready() -> void:
 	_power_bar.add_child(_power_fill)
 	_power_bar.visible = false
 
-	var hint := _make_label("Move WASD/Arrows · Sprint Shift · Pass J · Shoot(hold) K · Tackle L · Pause Esc", 12)
+	var hint := _make_label("Move WASD · Sprint Shift · Pass J · Through I · Shoot(hold) K · Tackle L · Switch Q · Pause Esc", 12)
 	hint.position = Vector2(16, 40)
 	add_child(hint)
 
@@ -120,15 +127,24 @@ func _process(_delta: float) -> void:
 func set_score(home: int, away: int) -> void:
 	_score_label.text = "HOME  %d - %d  AWAY" % [home, away]
 
-func set_clock(seconds: float, half: int) -> void:
+func set_clock(seconds: float, half: int, stoppage := 0.0) -> void:
 	var s := int(ceil(seconds))
 	var half_str := "1st" if half == 1 else "2nd"
-	_clock_label.text = "%s  %02d:%02d" % [half_str, s / 60, s % 60]
+	var extra := "  +%d" % int(ceil(stoppage)) if stoppage > 0.0 else ""
+	_clock_label.text = "%s  %02d:%02d%s" % [half_str, s / 60, s % 60, extra]
+
+func set_info(text: String) -> void:
+	if _info_label != null:
+		_info_label.text = text
 
 func show_goal(team_name: String) -> void:
-	_goal_banner.text = "%s GOAL!" % team_name
+	show_banner("%s GOAL!" % team_name, 1.6)
+
+## Generic centered announcement (set pieces, fouls, cards, etc.).
+func show_banner(text: String, secs := 1.4) -> void:
+	_goal_banner.text = text
 	_goal_banner.visible = true
-	_goal_timer = 1.6
+	_goal_timer = secs
 
 func show_pause(shown: bool) -> void:
 	_pause.visible = shown

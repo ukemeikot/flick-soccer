@@ -20,6 +20,7 @@ func _ready() -> void:
 
 	add_child(_hold_button("SHOOT", 156, 156, 44, 44, func(d): Touch.set_shoot(d)))
 	add_child(_tap_button("PASS", 126, 126, 216, 52, func(): Touch.press_pass()))
+	add_child(_tap_button("THRU", 104, 104, 300, 196, func(): Touch.press_through()))
 	add_child(_hold_button("SPRINT", 108, 108, 52, 220, func(d): Touch.sprint = d))
 	add_child(_tap_button("TACKLE", 108, 108, 184, 220, func(): Touch.press_tackle()))
 	add_child(_tap_button("SWITCH", 104, 104, 120, 334, func(): Touch.press_switch()))

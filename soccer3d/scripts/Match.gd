@@ -12,7 +12,7 @@ const HALF_L := 20.0
 const MOUTH := 6.0
 const KICKOFF_FREEZE := 1.1
 
-enum Phase { KICKOFF, PLAYING, PAUSED, FULLTIME }
+enum Phase { KICKOFF, PLAYING, PAUSED, FULLTIME, DEADBALL }
 
 # Formation slots for HOME (defends -Z, attacks +Z). {pos, gk}. AWAY is mirrored in Z.
 const FORMATION := [
@@ -37,6 +37,16 @@ var time_left := 120.0
 var score_home := 0
 var score_away := 0
 var _kickoff_timer := KICKOFF_FREEZE
+
+# Phase C: rules / set pieces state.
+var _last_touch_team := -1        # team that last played the ball (for corner vs goal kick)
+var _home_fouls := 0
+var _away_fouls := 0
+var _home_cards := 0              # yellow cards shown (cosmetic tally)
+var _away_cards := 0
+var _stoppage := 0.0              # accumulated added time
+var _restart_timer := 0.0         # dead-ball settle before play resumes
+var _restart_taker: Player = null
 
 func _ready() -> void:
 	time_left = MatchConfig.half_seconds
@@ -81,10 +91,26 @@ func _physics_process(delta: float) -> void:
 				_cycle_active()
 			_update_roles()
 			_unstick_ball(delta)
+			_check_bounds()
+			if phase != Phase.PLAYING:
+				return # a set piece took over this frame
 			time_left = maxf(time_left - delta, 0.0)
-			hud.set_clock(time_left, half)
 			if time_left <= 0.0:
-				_end_of_half()
+				# Play added time before the half actually ends.
+				if _stoppage > 0.0:
+					_stoppage = maxf(_stoppage - delta, 0.0)
+					hud.set_clock(0.0, half, _stoppage)
+				else:
+					_end_of_half()
+			else:
+				hud.set_clock(time_left, half, _stoppage)
+		Phase.DEADBALL:
+			_update_roles()
+			_stoppage += delta * 0.5 # dead-ball time is partly added on
+			_restart_timer -= delta
+			if _restart_timer <= 0.0:
+				_set_frozen(false)
+				phase = Phase.PLAYING
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
@@ -100,7 +126,7 @@ func _update_roles() -> void:
 		var chaser := _nearest_outfielder(t)
 		var active := _pick_active(t)
 		for p in players:
-			if p.team != t or p.is_gk:
+			if p.team != t or p.is_gk or p.sent_off:
 				continue
 			p.role_chase = (p == chaser)
 			p.is_human = (t == Player.HOME and p == active)
@@ -124,7 +150,7 @@ func _unstick_ball(delta: float) -> void:
 func _pick_active(team: int) -> Player:
 	# A player in possession always takes control (and clears any manual pick for Home).
 	for p in players:
-		if p.team == team and not p.is_gk and p.has_possession():
+		if p.team == team and not p.is_gk and not p.sent_off and p.has_possession():
 			if team == Player.HOME:
 				_forced_active = null
 			return p
@@ -135,7 +161,7 @@ func _pick_active(team: int) -> Player:
 func _home_outfielders() -> Array[Player]:
 	var a: Array[Player] = []
 	for p in players:
-		if p.team == Player.HOME and not p.is_gk:
+		if p.team == Player.HOME and not p.is_gk and not p.sent_off:
 			a.append(p)
 	return a
 
@@ -152,7 +178,7 @@ func _nearest_outfielder(team: int) -> Player:
 	var best: Player = null
 	var best_d := INF
 	for p in players:
-		if p.team != team or p.is_gk:
+		if p.team != team or p.is_gk or p.sent_off:
 			continue
 		var d := p.global_position.distance_to(ball.global_position)
 		if d < best_d:
@@ -172,13 +198,31 @@ func best_pass_target(from: Player) -> Player:
 	var best: Player = null
 	var best_score := -INF
 	for p in players:
-		if p.team != from.team or p == from or p.is_gk:
+		if p.team != from.team or p == from or p.is_gk or p.sent_off:
 			continue
 		var dist := p.global_position.distance_to(from.global_position)
 		if dist < 2.5 or dist > 26.0:
 			continue
 		var forwardness := (p.global_position.z - from.global_position.z) * from.attack_sign()
 		var s := forwardness - dist * 0.2
+		if s > best_score:
+			best_score = s
+			best = p
+	return best
+
+## Best target for a through-ball: the most advanced teammate who is ahead of the passer
+## (toward the opponent goal) and not too far out wide — someone to run onto the ball.
+func through_ball_target(from: Player) -> Player:
+	var best: Player = null
+	var best_score := -INF
+	for p in players:
+		if p.team != from.team or p == from or p.is_gk or p.sent_off:
+			continue
+		var forwardness := (p.global_position.z - from.global_position.z) * from.attack_sign()
+		if forwardness < 1.0: # must be ahead of the passer
+			continue
+		var wide := absf(p.global_position.x - from.global_position.x)
+		var s := forwardness - wide * 0.4
 		if s > best_score:
 			best_score = s
 			best = p
@@ -191,6 +235,167 @@ func opponent_within(p: Player, r: float) -> bool:
 		if o.global_position.distance_to(p.global_position) < r:
 			return true
 	return false
+
+# --- Phase C: touches, tackles, fouls, set pieces -------------------------------------------
+
+## Called by players whenever they kick or control the ball (for corner-vs-goal-kick decisions).
+func note_touch(p: Player) -> void:
+	_last_touch_team = p.team
+
+func _ball_holder() -> Player:
+	for p in players:
+		if not p.sent_off and p.has_possession():
+			return p
+	return null
+
+## Resolve a tackle attempt: either win the ball cleanly, or concede a foul.
+func resolve_tackle(t: Player) -> void:
+	if phase != Phase.PLAYING:
+		return
+	var holder := _ball_holder()
+	if holder == null or holder.team == t.team:
+		return # nobody to tackle — the lunge is just a lunge
+	if holder.global_position.distance_to(t.global_position) > 2.4:
+		return
+	var facing_ok := t.facing.dot((holder.global_position - t.global_position).normalized()) > 0.2
+	var win := clampf(0.45 + t.attr_defend * 0.25 + (0.15 if facing_ok else -0.2), 0.05, 0.9)
+	if randf() < win:
+		ball.kick(t.facing * 5.0) # poke the ball away
+		note_touch(t)
+	else:
+		_award_foul(t, holder)
+
+func _award_foul(offender: Player, victim: Player) -> void:
+	var spot := Vector3(victim.global_position.x, 0.0, victim.global_position.z)
+	if offender.team == Player.HOME:
+		_home_fouls += 1
+	else:
+		_away_fouls += 1
+
+	# A foul inside the offender's own box is a penalty.
+	if _in_penalty_box(spot, offender.team):
+		Sfx.play("whistle")
+		hud.show_banner("PENALTY!", 1.6)
+		_maybe_card(offender, true)
+		_start_penalty(victim.team)
+		_update_info()
+		return
+
+	Sfx.play("whistle")
+	hud.show_banner("FREE KICK", 1.3)
+	_maybe_card(offender, false)
+	_start_restart(victim.team, spot)
+	_update_info()
+
+func _maybe_card(offender: Player, dangerous: bool) -> void:
+	var chance := 0.4 if dangerous else 0.2
+	if randf() >= chance:
+		return
+	offender.yellows += 1
+	if offender.team == Player.HOME:
+		_home_cards += 1
+	else:
+		_away_cards += 1
+	# Second yellow (or a rare straight red) → sent off, if the team can spare a player.
+	if (offender.yellows >= 2 or randf() < 0.08) and _outfield_count(offender.team) > 2:
+		offender.sent_off = true
+		offender.set_frozen(true)
+		offender.visible = false
+		hud.show_banner("RED CARD", 1.8)
+	else:
+		hud.show_banner("YELLOW CARD", 1.3)
+
+func _outfield_count(team: int) -> int:
+	var n := 0
+	for p in players:
+		if p.team == team and not p.is_gk and not p.sent_off:
+			n += 1
+	return n
+
+## Generic dead-ball restart: place the ball, stand the taker behind it, then resume shortly.
+func _start_restart(team: int, spot: Vector3) -> void:
+	phase = Phase.DEADBALL
+	_set_frozen(true)
+	ball.linear_velocity = Vector3.ZERO
+	ball.angular_velocity = Vector3.ZERO
+	ball.spin = Vector3.ZERO
+	ball.global_position = Vector3(
+		clampf(spot.x, -HALF_W + 0.6, HALF_W - 0.6), 0.3,
+		clampf(spot.z, -HALF_L + 0.6, HALF_L - 0.6))
+	var taker := _nearest_to(team, ball.global_position)
+	if taker != null:
+		taker.global_position = ball.global_position - _forward_dir(team) * 1.2
+		taker.velocity = Vector3.ZERO
+		_restart_taker = taker
+		_forced_active = taker if team == Player.HOME else null
+	_restart_timer = 0.7
+
+func _start_penalty(team: int) -> void:
+	phase = Phase.DEADBALL
+	_set_frozen(true)
+	var goal := opp_goal(team)
+	var spot := Vector3(0.0, 0.3, goal.z - signf(goal.z) * 6.0)
+	ball.linear_velocity = Vector3.ZERO
+	ball.angular_velocity = Vector3.ZERO
+	ball.spin = Vector3.ZERO
+	ball.global_position = spot
+	var taker := _nearest_to(team, spot)
+	if taker != null:
+		taker.global_position = spot - _forward_dir(team) * 1.2
+		taker.velocity = Vector3.ZERO
+		_restart_taker = taker
+		_forced_active = taker if team == Player.HOME else null
+	_restart_timer = 0.9
+
+## Detect the ball leaving the pitch → throw-in (touchline) or corner / goal kick (byline).
+func _check_bounds() -> void:
+	var bp := ball.global_position
+	if absf(bp.x) > HALF_W:
+		var team := _other_team(_last_touch_team)
+		Sfx.play("whistle")
+		hud.show_banner("THROW-IN", 1.1)
+		_start_restart(team, Vector3(bp.x, 0.0, bp.z))
+	elif absf(bp.z) > HALF_L:
+		# A ball heading into the goal mouth is a goal (handled by the sensor) — ignore it here.
+		if absf(bp.x) < MOUTH / 2.0 + 0.3 and bp.y < 2.4:
+			return
+		var defending_team := Player.AWAY if bp.z > 0.0 else Player.HOME
+		Sfx.play("whistle")
+		if _last_touch_team == defending_team:
+			var cx := signf(bp.x) * (HALF_W - 1.0)
+			var cz := signf(bp.z) * (HALF_L - 1.0)
+			hud.show_banner("CORNER", 1.1)
+			_start_restart(_other_team(defending_team), Vector3(cx, 0.0, cz))
+		else:
+			hud.show_banner("GOAL KICK", 1.1)
+			_start_restart(defending_team, Vector3(0.0, 0.0, signf(bp.z) * (HALF_L - 5.0)))
+
+func _in_penalty_box(pos: Vector3, team: int) -> bool:
+	var g := own_goal(team)
+	return absf(pos.x) < 6.0 and absf(pos.z - g.z) < 6.0
+
+# Direction a team attacks in (unit vector along Z).
+func _forward_dir(team: int) -> Vector3:
+	return Vector3(0, 0, 1.0 if team == Player.HOME else -1.0)
+
+func _other_team(team: int) -> int:
+	return Player.HOME if team == Player.AWAY else Player.AWAY
+
+func _nearest_to(team: int, pos: Vector3) -> Player:
+	var best: Player = null
+	var best_d := INF
+	for p in players:
+		if p.team != team or p.is_gk or p.sent_off:
+			continue
+		var d := p.global_position.distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+func _update_info() -> void:
+	if hud != null:
+		hud.set_info("Fouls  %d-%d   Cards  %d-%d" % [_home_fouls, _away_fouls, _home_cards, _away_cards])
 
 # --- Match flow -----------------------------------------------------------------------------
 
@@ -226,6 +431,7 @@ func _end_of_half() -> void:
 	if half == 1:
 		half = 2
 		time_left = MatchConfig.half_seconds
+		_stoppage = 0.0
 		hud.set_clock(time_left, half)
 		_kickoff()
 	else:
@@ -256,7 +462,17 @@ func rematch() -> void:
 	score_away = 0
 	half = 1
 	time_left = MatchConfig.half_seconds
+	_stoppage = 0.0
+	_home_fouls = 0
+	_away_fouls = 0
+	_home_cards = 0
+	_away_cards = 0
+	for p in players:
+		p.sent_off = false
+		p.yellows = 0
+		p.visible = true
 	hud.set_score(0, 0)
+	hud.set_info("")
 	hud.hide_overlays()
 	_kickoff()
 
@@ -282,11 +498,24 @@ func _spawn_team(team: int, kit: Color) -> void:
 		p.home_pos = Vector3(pos.x, 0.0, pos.z)
 		p.kit_color = kit.lightened(0.35) if slot["gk"] else kit
 		p.skill = MatchConfig.ai_skill()
+		_assign_attrs(p, i)
 		p.ball = ball
 		p.world = self
 		p.position = Vector3(pos.x, 0.0, pos.z)
 		add_child(p)
 		players.append(p)
+
+## Per-position attribute profiles (defenders defend, forwards are quick & finish).
+func _assign_attrs(p: Player, idx: int) -> void:
+	match idx:
+		0: # goalkeeper
+			p.attr_pace = 0.90; p.attr_defend = 1.20; p.attr_shoot = 0.80; p.attr_pass = 0.95
+		1, 2: # defenders
+			p.attr_pace = 0.97; p.attr_defend = 1.15; p.attr_shoot = 0.85; p.attr_pass = 1.00
+		3: # midfielder
+			p.attr_pace = 1.03; p.attr_defend = 1.00; p.attr_shoot = 1.05; p.attr_pass = 1.10
+		_: # forward
+			p.attr_pace = 1.10; p.attr_defend = 0.85; p.attr_shoot = 1.18; p.attr_pass = 1.00
 
 # --- World build ----------------------------------------------------------------------------
 
@@ -307,25 +536,43 @@ func _build_environment() -> void:
 
 func _build_pitch() -> void:
 	# Ground extends a bit past the goals so the ball doesn't fall into the void behind the net.
+	# Ground extends well past the lines (with a darker surround) so the ball can go out of
+	# play for throw-ins / corners without falling into the void.
+	var gw := PITCH_WIDTH + 16.0
+	var gl := PITCH_LENGTH + 16.0
 	var ground := StaticBody3D.new()
 	var gmesh := MeshInstance3D.new()
 	var gbox := BoxMesh.new()
-	gbox.size = Vector3(PITCH_WIDTH, 0.2, PITCH_LENGTH + 8.0)
+	gbox.size = Vector3(gw, 0.2, gl)
 	gmesh.mesh = gbox
-	gmesh.material_override = _mat(Color(0.16, 0.55, 0.24))
+	gmesh.material_override = _mat(Color(0.12, 0.42, 0.18))
 	gmesh.position = Vector3(0, -0.1, 0)
 	ground.add_child(gmesh)
 	var gcol := CollisionShape3D.new()
 	var gshape := BoxShape3D.new()
-	gshape.size = Vector3(PITCH_WIDTH, 0.2, PITCH_LENGTH + 8.0)
+	gshape.size = Vector3(gw, 0.2, gl)
 	gcol.shape = gshape
 	gcol.position = Vector3(0, -0.1, 0)
 	ground.add_child(gcol)
 	add_child(ground)
 
-	# Side walls (full length).
-	_add_wall(Vector3(HALF_W, 1, 0), Vector3(0.5, 2, PITCH_LENGTH))
-	_add_wall(Vector3(-HALF_W, 1, 0), Vector3(0.5, 2, PITCH_LENGTH))
+	# The playable pitch surface (brighter green inside the lines).
+	var pitch := MeshInstance3D.new()
+	var pbox := BoxMesh.new()
+	pbox.size = Vector3(PITCH_WIDTH, 0.02, PITCH_LENGTH)
+	pitch.mesh = pbox
+	pitch.material_override = _mat(Color(0.16, 0.55, 0.24))
+	pitch.position = Vector3(0, 0.005, 0)
+	add_child(pitch)
+
+	# Outer safety walls a few metres beyond the lines — the ball leaves the field of play
+	# (triggering a set piece) but can't roll away forever.
+	var ow := HALF_W + 5.0
+	var ol := HALF_L + 5.0
+	_add_wall(Vector3(ow, 1.5, 0), Vector3(0.5, 3, (ol) * 2.0))
+	_add_wall(Vector3(-ow, 1.5, 0), Vector3(0.5, 3, (ol) * 2.0))
+	_add_wall(Vector3(0, 1.5, ol), Vector3(ow * 2.0, 3, 0.5))
+	_add_wall(Vector3(0, 1.5, -ol), Vector3(ow * 2.0, 3, 0.5))
 
 	_build_end(HALF_L, Player.HOME)   # HOME attacks +Z, so +Z goal = HOME scores
 	_build_end(-HALF_L, Player.AWAY)
@@ -335,14 +582,9 @@ func _build_pitch() -> void:
 
 func _build_end(z_line: float, scoring_team: int) -> void:
 	var s := signf(z_line)
-	var gap := MOUTH / 2.0
-	var seg_w := HALF_W - gap
-	var cx := gap + seg_w / 2.0
-	# Two wall segments flanking the goal mouth.
-	_add_wall(Vector3(cx, 1, z_line), Vector3(seg_w, 2, 0.5))
-	_add_wall(Vector3(-cx, 1, z_line), Vector3(seg_w, 2, 0.5))
-	# Back wall behind the goal to stop the ball.
-	_add_wall(Vector3(0, 1, z_line + s * 3.0), Vector3(PITCH_WIDTH, 2, 0.5))
+	# Net backstop spanning ONLY the goal mouth: catches shots on target so they settle in the
+	# net, while balls wide of the posts cross the byline for a corner or goal kick.
+	_add_wall(Vector3(0, 1.1, z_line + s * 2.2), Vector3(MOUTH + 0.3, 2.2, 0.4))
 
 	# Cosmetic frame + net.
 	_add_goal(Vector3(0, 0, z_line))

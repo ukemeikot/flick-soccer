@@ -7,12 +7,16 @@ var sprint := false
 var shoot_held := false
 
 var _pass := false
+var _through := false
 var _tackle := false
 var _switch := false
 var _shoot_released := false
 
 func press_pass() -> void:
 	_pass = true
+
+func press_through() -> void:
+	_through = true
 
 func press_tackle() -> void:
 	_tackle = true
@@ -28,6 +32,11 @@ func set_shoot(down: bool) -> void:
 func consume_pass() -> bool:
 	var v := _pass
 	_pass = false
+	return v
+
+func consume_through() -> bool:
+	var v := _through
+	_through = false
 	return v
 
 func consume_tackle() -> bool:
@@ -50,6 +59,7 @@ func reset() -> void:
 	sprint = false
 	shoot_held = false
 	_pass = false
+	_through = false
 	_tackle = false
 	_switch = false
 	_shoot_released = false

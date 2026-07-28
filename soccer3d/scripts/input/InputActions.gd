@@ -9,6 +9,7 @@ func _ready() -> void:
 	_bind("move_down", [KEY_S, KEY_DOWN])
 	_bind("sprint", [KEY_SHIFT])
 	_bind("kick_pass", [KEY_J, KEY_SPACE])
+	_bind("through_ball", [KEY_I, KEY_U])
 	_bind("kick_shoot", [KEY_K])
 	_bind("tackle", [KEY_L])
 	_bind("switch_player", [KEY_Q, KEY_TAB])

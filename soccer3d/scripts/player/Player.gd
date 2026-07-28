@@ -23,6 +23,10 @@ const CHARGE_RATE := 1.5
 const KICK_COOLDOWN := 0.35
 const LUNGE_TIME := 0.28
 const HIGH_BALL_Y := 1.0
+const ACCEL := 30.0      # how fast we reach target speed (units/s^2)
+const DECEL := 38.0      # quicker slow-down when the stick is released
+const TURN_RATE := 9.0   # facing turn speed (higher = snappier)
+const CURL := 7.0        # sideways spin imparted by curved shots/passes
 const SKIN := Color(0.86, 0.66, 0.5)
 const SOCKS := Color(0.11, 0.11, 0.14)
 
@@ -35,16 +39,25 @@ var home_pos := Vector3.ZERO
 var kit_color := Color(0.2, 0.45, 0.95)
 var number := 1
 var skill := 0.7
+# Per-player attributes (1.0 = average). Set by the match from a position profile.
+var attr_pace := 1.0
+var attr_shoot := 1.0
+var attr_pass := 1.0
+var attr_defend := 1.0
+var sent_off := false # removed from play by a red card
+var yellows := 0
 
 # Set each frame by the match:
 var is_human := false
 var role_chase := false
 
 var facing := Vector3(0.0, 0.0, -1.0)
+var _move_dir := Vector3.ZERO # last non-zero input direction (for curl/finesse)
 var stamina := 1.0
 var charge := 0.0
 var _kick_cooldown := 0.0
 var _lunge := 0.0
+var _tackle_cd := 0.0
 var _controllable := false
 var _anim_phase := 0.0
 var _leg_l: Node3D
@@ -66,6 +79,12 @@ func _ready() -> void:
 	add_child(col)
 
 func _build_body() -> void:
+	# Phase B art hook: if a rigged humanoid model has been dropped in, use it; otherwise
+	# fall back to the stylized primitive body. Lets real models be added without code changes.
+	if _try_load_model():
+		_add_number_label()
+		return
+
 	var jersey := kit_color
 	var shorts := kit_color.darkened(0.5)
 
@@ -78,6 +97,25 @@ func _build_body() -> void:
 	_arm_l = _limb(Vector3(-0.34, 1.42, 0), Vector3(0.13, 0.55, 0.13), jersey)
 	_arm_r = _limb(Vector3(0.34, 1.42, 0), Vector3(0.13, 0.55, 0.13), SKIN)
 
+	_add_number_label()
+
+## Loads res://assets/players/player.glb (kit-tinted) if present. Returns false when no model
+## has been added yet, so the game still runs on the primitive body. Animation wiring for a
+## rigged model is layered on in Phase B once real art is dropped in.
+func _try_load_model() -> bool:
+	var path := "res://assets/players/player.glb"
+	if not ResourceLoader.exists(path):
+		return false
+	var packed := load(path) as PackedScene
+	if packed == null:
+		return false
+	var model := packed.instantiate()
+	if model is Node3D:
+		(model as Node3D).scale = Vector3(1, 1, 1)
+	add_child(model)
+	return true
+
+func _add_number_label() -> void:
 	# Shirt number on the back (local +Z is behind, since forward is -Z).
 	var label := Label3D.new()
 	label.text = str(number)
@@ -135,6 +173,7 @@ func set_frozen(frozen: bool) -> void:
 func _physics_process(delta: float) -> void:
 	_kick_cooldown = maxf(_kick_cooldown - delta, 0.0)
 	_lunge = maxf(_lunge - delta, 0.0)
+	_tackle_cd = maxf(_tackle_cd - delta, 0.0)
 
 	if not _controllable or ball == null or world == null:
 		_apply_movement(Vector3.ZERO, false, delta)
@@ -155,18 +194,32 @@ func _physics_process(delta: float) -> void:
 func _apply_movement(dir: Vector3, sprint: bool, delta: float) -> void:
 	var moving := dir.length() > 0.1
 	var use_sprint := sprint and stamina > 0.05 and moving
-	var speed := sprint_speed if use_sprint else walk_speed
+	var speed := (sprint_speed if use_sprint else walk_speed) * attr_pace
 	if _lunge > 0.0:
-		speed = sprint_speed * 1.5
-	velocity.x = dir.x * speed
-	velocity.z = dir.z * speed
-	velocity.y = 0.0
-	if _lunge > 0.0 and not moving:
-		velocity.x = facing.x * sprint_speed * 1.5
-		velocity.z = facing.z * sprint_speed * 1.5
-	move_and_slide()
+		speed = sprint_speed * 1.5 * attr_pace
 	if moving:
-		facing = dir.normalized()
+		_move_dir = dir.normalized()
+
+	# Momentum: ease velocity toward the target instead of snapping, so players carry
+	# weight, accelerate into sprints, and can't turn on a dime at speed.
+	var target := Vector3.ZERO
+	if _lunge > 0.0 and not moving:
+		target = facing * sprint_speed * 1.5
+	elif _lunge > 0.0:
+		target = _move_dir * speed
+	elif moving:
+		target = dir.normalized() * speed
+	var rate := (ACCEL if (moving or _lunge > 0.0) else DECEL) * delta
+	velocity.x = move_toward(velocity.x, target.x, rate)
+	velocity.z = move_toward(velocity.z, target.z, rate)
+	velocity.y = 0.0
+	move_and_slide()
+
+	# Turn toward the direction of travel at a finite rate (snappier at low speed).
+	var travel := Vector3(velocity.x, 0.0, velocity.z)
+	if travel.length() > 0.4:
+		var want := travel.normalized()
+		facing = facing.lerp(want, clampf(TURN_RATE * delta, 0.0, 1.0)).normalized()
 		look_at(global_position + facing, Vector3.UP)
 	if use_sprint:
 		stamina = maxf(stamina - STAMINA_DRAIN * delta, 0.0)
@@ -210,11 +263,16 @@ func _human_control(delta: float) -> void:
 		do_pass = true
 	if do_pass:
 		_pass()
+	var do_through := Input.is_action_just_pressed("through_ball")
+	if Touch.consume_through():
+		do_through = true
+	if do_through:
+		_through_ball()
 	var do_tackle := Input.is_action_just_pressed("tackle")
 	if Touch.consume_tackle():
 		do_tackle = true
 	if do_tackle:
-		_lunge = LUNGE_TIME
+		_attempt_tackle()
 
 # --- AI -------------------------------------------------------------------------------------
 
@@ -235,6 +293,8 @@ func _ai_control(delta: float) -> void:
 
 	if role_chase:
 		_apply_movement(to_ball.normalized(), to_ball.length() > 6.0, delta)
+		if to_ball.length() < 2.0 and _tackle_cd <= 0.0 and randf() < 0.05:
+			_attempt_tackle() # resolve_tackle no-ops unless an opponent actually holds the ball
 		return
 
 	var target := _formation_target()
@@ -254,13 +314,28 @@ func _gk_control(delta: float) -> void:
 	var own: Vector3 = world.own_goal(team)
 	# Stand just in FRONT of the own goal line (inside the pitch), not behind it.
 	var line_z := own.z + attack_sign() * 1.2
-	var target := Vector3(clampf(ball.global_position.x, -2.8, 2.8), 0.0, line_z)
+
+	# Track the ball, but if it's flying toward goal, get across to where it will cross the line.
+	var guard_x := ball.global_position.x
+	var toward := ball.linear_velocity.z * signf(own.z) # >0 means heading at our goal
+	if toward > 1.0 and absf(ball.linear_velocity.z) > 0.5:
+		var t := (line_z - ball.global_position.z) / ball.linear_velocity.z
+		if t > 0.0 and t < 1.6:
+			guard_x = ball.global_position.x + ball.linear_velocity.x * t
+
+	var target := Vector3(clampf(guard_x, -2.9, 2.9), 0.0, line_z)
 	var dist_to_goal := (ball.global_position - own).length()
 	if dist_to_goal < 6.5:
-		target = Vector3(clampf(ball.global_position.x, -2.8, 2.8), 0.0, line_z + attack_sign() * 2.5)
+		target = Vector3(clampf(guard_x, -2.9, 2.9), 0.0, line_z + attack_sign() * 2.0)
+
+	# Dive at a close, fast shot on target.
+	if dist_to_goal < 5.5 and toward > 4.0 and _tackle_cd <= 0.0 and absf(guard_x) < 3.4:
+		_tackle_cd = 0.6
+		_lunge = LUNGE_TIME
+
 	var to_t := target - global_position
 	to_t.y = 0.0
-	_apply_movement(to_t.normalized() if to_t.length() > 0.3 else Vector3.ZERO, dist_to_goal < 8.0, delta)
+	_apply_movement(to_t.normalized() if to_t.length() > 0.25 else Vector3.ZERO, dist_to_goal < 9.0, delta)
 	if has_possession():
 		_pass()
 
@@ -278,11 +353,16 @@ func has_possession() -> bool:
 func _dribble() -> void:
 	if not has_possession():
 		return
+	if world != null:
+		world.note_touch(self)
 	var target := global_position + facing * dribble_distance
 	var desired := target - ball.global_position
 	desired.y = 0.0
-	ball.linear_velocity.x = desired.x * 7.0
-	ball.linear_velocity.z = desired.z * 7.0
+	# First touch: a fast incoming ball is cushioned, not instantly glued to the feet.
+	var incoming := Vector2(ball.linear_velocity.x, ball.linear_velocity.z).length()
+	var blend := 0.55 if incoming > 9.0 else 0.85
+	ball.linear_velocity.x = lerpf(ball.linear_velocity.x, desired.x * 7.0, blend)
+	ball.linear_velocity.z = lerpf(ball.linear_velocity.z, desired.z * 7.0, blend)
 
 func _pass() -> void:
 	if not _within_kick_range():
@@ -295,17 +375,49 @@ func _pass() -> void:
 		if d.length() > 0.5:
 			dir = d.normalized()
 	var high := ball.global_position.y > HIGH_BALL_Y
-	_launch(dir * pass_power + Vector3.UP * (2.5 if high else 1.5))
+	_launch(dir * pass_power * attr_pass + Vector3.UP * (2.5 if high else 1.5))
 
 func _shoot(c: float) -> void:
 	if not _within_kick_range():
 		return
 	var high := ball.global_position.y > HIGH_BALL_Y
-	var power := lerpf(min_shot_power, max_shot_power, clampf(c, 0.0, 1.0))
+	var power := lerpf(min_shot_power, max_shot_power, clampf(c, 0.0, 1.0)) * attr_shoot
+	var spin := _curl_spin(c)
 	if high:
-		_launch(facing * (power * 0.8) + Vector3.UP * (5.0 + c * 3.0))
+		_launch(facing * (power * 0.8) + Vector3.UP * (5.0 + c * 3.0), spin)
 	else:
-		_launch(facing * power + Vector3.UP * (2.0 + c * 2.5))
+		_launch(facing * power + Vector3.UP * (2.0 + c * 2.5), spin)
+
+## A driven ground pass played ahead of a forward-running teammate (into space).
+func _through_ball() -> void:
+	if not _within_kick_range():
+		return
+	var dir := facing
+	var t: Player = world.through_ball_target(self)
+	if t != null:
+		var lead := t.global_position - global_position
+		lead += Vector3(0.0, 0.0, attack_sign() * 3.0) # aim ahead of the runner
+		lead.y = 0.0
+		if lead.length() > 0.5:
+			dir = lead.normalized()
+	_launch(dir * pass_power * 1.7 * attr_pass)
+
+## Sideways spin from pushing the stick across the kick direction (curved/finesse shots).
+func _curl_spin(power: float) -> Vector3:
+	var right := facing.cross(Vector3.UP)
+	var lateral := right.dot(_move_dir)
+	if absf(lateral) < 0.15:
+		return Vector3.ZERO
+	return Vector3.UP * (-lateral) * CURL * clampf(power, 0.3, 1.0)
+
+## Slide/standing tackle: lunge, and ask the match to resolve it (win the ball, or concede a foul).
+func _attempt_tackle() -> void:
+	if _tackle_cd > 0.0:
+		return
+	_tackle_cd = 0.5
+	_lunge = LUNGE_TIME
+	if world != null:
+		world.resolve_tackle(self)
 
 func _within_kick_range() -> bool:
 	if ball == null:
@@ -314,10 +426,11 @@ func _within_kick_range() -> bool:
 	d.y = 0.0
 	return d.length() <= control_radius + 0.7
 
-func _launch(impulse: Vector3) -> void:
-	ball.linear_velocity = Vector3.ZERO
-	ball.apply_central_impulse(impulse)
+func _launch(impulse: Vector3, spin_axis := Vector3.ZERO) -> void:
+	ball.kick(impulse, spin_axis)
 	_kick_cooldown = KICK_COOLDOWN
+	if world != null:
+		world.note_touch(self)
 	Sfx.play("kick")
 
 func charge_ratio() -> float:
