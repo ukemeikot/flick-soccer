@@ -65,7 +65,11 @@ var _leg_r: Node3D
 var _arm_l: Node3D
 var _arm_r: Node3D
 var _model_root: Node3D          # loaded rigged model (null when using primitives)
-var _model_anim: AnimationPlayer # its walk/run AnimationPlayer
+var _model_anim: AnimationPlayer # its AnimationPlayer
+var _anim_idle := ""             # clip names mapped from whatever the model provides
+var _anim_run := ""
+var _anim_kick := ""
+var _anim_action := 0.0          # seconds left holding a one-shot action clip (kick/tackle)
 
 func attack_sign() -> float:
 	return 1.0 if team == HOME else -1.0
@@ -102,8 +106,8 @@ func _build_body() -> void:
 	_add_number_label()
 
 const MODEL_PATH := "res://assets/players/player.glb"
-const MODEL_SCALE := 1.16          # bring the ~1.5u model up to ~1.75m
 const MODEL_YAW := 180.0           # face the body's forward (-Z)
+const MODEL_HEIGHT := 1.85         # auto-scale the model to this height (metres)
 
 ## Loads the rigged humanoid model (kit-tinted, animated) if present; falls back to the
 ## primitive body otherwise so the game always runs.
@@ -116,10 +120,10 @@ func _try_load_model() -> bool:
 	var model := packed.instantiate() as Node3D
 	if model == null:
 		return false
-	model.scale = Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE)
 	model.rotation_degrees = Vector3(0, MODEL_YAW, 0)
 	add_child(model)
 	_model_root = model
+	_fit_model(model)
 
 	# Opaque team-colored kit (no transparency → no alpha-sort flicker).
 	var kitmat := StandardMaterial3D.new()
@@ -128,18 +132,83 @@ func _try_load_model() -> bool:
 	for m in _find_nodes(model, "MeshInstance3D"):
 		(m as MeshInstance3D).material_override = kitmat
 
-	# Drive the walk cycle from movement speed (see _animate).
+	# Map whatever clips the model ships to game states (works for rich or single-clip models).
 	var players := _find_nodes(model, "AnimationPlayer")
 	if not players.is_empty():
 		_model_anim = players[0] as AnimationPlayer
-		var list := _model_anim.get_animation_list()
-		if not list.is_empty():
-			var anim := _model_anim.get_animation(list[0])
-			if anim != null:
-				anim.loop_mode = Animation.LOOP_LINEAR
-			_model_anim.play(list[0])
-			_model_anim.speed_scale = 0.0 # start idle
+		_map_animations()
 	return true
+
+## Categorize the model's animation clips into idle / run / kick by name (case-insensitive),
+## with sensible fallbacks, and make idle/run loop.
+func _map_animations() -> void:
+	var list := _model_anim.get_animation_list()
+	if list.is_empty():
+		return
+	for n in list:
+		var low := String(n).to_lower()
+		if _anim_run == "" and (low.contains("run")):
+			_anim_run = n
+		if _anim_idle == "" and (low.contains("idle") or low.contains("stand")):
+			_anim_idle = n
+		if _anim_kick == "" and (low.contains("punch") or low.contains("kick")):
+			_anim_kick = n
+	if _anim_run == "": # no "run" clip → try walk, else the first clip
+		for n in list:
+			if String(n).to_lower().contains("walk"):
+				_anim_run = n
+				break
+	if _anim_run == "":
+		_anim_run = list[0]
+	for key in [_anim_run, _anim_idle]:
+		if key != "":
+			var a := _model_anim.get_animation(key)
+			if a != null:
+				a.loop_mode = Animation.LOOP_LINEAR
+	if _anim_idle != "":
+		_model_anim.play(_anim_idle)
+	else:
+		_model_anim.play(_anim_run)
+		_model_anim.speed_scale = 0.0
+
+## Fit the model to MODEL_HEIGHT and drop its feet to y=0 (handles any source model's scale).
+func _fit_model(model: Node3D) -> void:
+	var meshes := _find_nodes(model, "MeshInstance3D")
+	if meshes.is_empty():
+		return
+	# Pose the skeleton now so mesh transforms are valid this frame (not next).
+	for sk in _find_nodes(model, "Skeleton3D"):
+		(sk as Skeleton3D).force_update_all_bone_transforms()
+	var mn := Vector3(INF, INF, INF)
+	var mx := -mn
+	var inv := model.global_transform.affine_inverse()
+	for mm in meshes:
+		var mi := mm as MeshInstance3D
+		var a := mi.get_aabb()
+		var t := inv * mi.global_transform
+		for i in 8:
+			var corner := a.position + Vector3(a.size.x * (i & 1), a.size.y * ((i >> 1) & 1), a.size.z * ((i >> 2) & 1))
+			var p := t * corner
+			mn.x = minf(mn.x, p.x); mn.y = minf(mn.y, p.y); mn.z = minf(mn.z, p.z)
+			mx.x = maxf(mx.x, p.x); mx.y = maxf(mx.y, p.y); mx.z = maxf(mx.z, p.z)
+	var h := mx.y - mn.y
+	if h <= 0.05:
+		return # implausible measurement — leave scale alone rather than exploding the model
+	var s := clampf(MODEL_HEIGHT / h, 0.05, 5.0)
+	model.scale = Vector3(s, s, s)
+	model.position.y = -mn.y * s
+
+## Play a one-shot action clip (kick / tackle) for its duration, if the model has one.
+func _play_action(clip: String) -> void:
+	if _model_anim == null or clip == "":
+		return
+	var a := _model_anim.get_animation(clip)
+	if a == null:
+		return
+	a.loop_mode = Animation.LOOP_NONE
+	_model_anim.play(clip)
+	_model_anim.speed_scale = 1.0
+	_anim_action = minf(a.length, 0.55)
 
 func _find_nodes(root: Node, cls: String) -> Array:
 	var out: Array = []
@@ -262,12 +331,22 @@ func _apply_movement(dir: Vector3, sprint: bool, delta: float) -> void:
 	_animate(moving, delta)
 
 func _animate(moving: bool, delta: float) -> void:
-	# Rigged model: scrub its walk cycle at a speed proportional to how fast we're moving.
+	# Rigged model: pick idle / run / one-shot action clips based on state.
 	if _model_anim != null:
+		if _anim_action > 0.0:
+			_anim_action -= delta
+			return # let the kick/tackle clip play out
 		if moving:
-			_model_anim.speed_scale = clampf(velocity.length() / walk_speed, 0.7, 2.4)
+			if _anim_run != "" and _model_anim.current_animation != _anim_run:
+				_model_anim.play(_anim_run)
+			var spd := clampf(velocity.length() / walk_speed, 0.7, 2.2)
+			_model_anim.speed_scale = spd
+		elif _anim_idle != "":
+			if _model_anim.current_animation != _anim_idle:
+				_model_anim.play(_anim_idle)
+			_model_anim.speed_scale = 1.0
 		else:
-			_model_anim.speed_scale = 0.0
+			_model_anim.speed_scale = 0.0 # single-clip model with no idle → freeze
 		return
 	if _leg_l == null:
 		return
@@ -476,6 +555,7 @@ func _attempt_tackle() -> void:
 		return
 	_tackle_cd = 0.5
 	_lunge = LUNGE_TIME
+	_play_action(_anim_kick) # reuse the punch/kick clip as a lunge
 	if world != null:
 		world.resolve_tackle(self)
 
@@ -489,6 +569,7 @@ func _within_kick_range() -> bool:
 func _launch(impulse: Vector3, spin_axis := Vector3.ZERO) -> void:
 	ball.kick(impulse, spin_axis)
 	_kick_cooldown = KICK_COOLDOWN
+	_play_action(_anim_kick)
 	if world != null:
 		world.note_touch(self)
 	Sfx.play("kick")

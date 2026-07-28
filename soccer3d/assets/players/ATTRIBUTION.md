@@ -1,9 +1,14 @@
 # Player model attribution
 
-**player.glb** (CesiumMan) — © Cesium, licensed **CC-BY 4.0**.
-Source: Khronos glTF-Sample-Assets (https://github.com/KhronosGroup/glTF-Sample-Assets).
-An animated, rigged humanoid used as the interim realistic footballer model.
+**player.glb** = **RobotExpressive** by Tomás Laulhé, modified by Don McCurdy.
+License: **CC0** (public domain).
+Source: three.js examples (https://github.com/mrdoob/three.js — examples/models/gltf/RobotExpressive).
+A rigged humanoid character with a full animation set (Idle, Walking, Running, Punch,
+Jump, Wave, Dance, ThumbsUp, …) used as the animated footballer.
 
-RiggedFigure.glb — Khronos glTF-Sample-Assets, CC-BY.
+In-game these clips are mapped by name to states: Running → movement, Idle → standing,
+Punch → kick/tackle action (see Player._map_animations / _play_action).
 
-TODO: replace with per-team kitted footballer models (Quaternius CC0 or licensed) as art improves.
+Also present:
+- **RobotExpressive.glb** — pristine copy of the above (CC0).
+- **CesiumMan** (CC-BY, © Cesium) was the earlier single-animation model; replaced by RobotExpressive.
