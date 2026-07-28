@@ -19,8 +19,9 @@ var _result_label: Label
 var _radar: Radar
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fit()
+	get_viewport().size_changed.connect(_fit)
 
 	_score_label = _make_label("HOME  0 - 0  AWAY", 30)
 	_score_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -94,6 +95,10 @@ func _ready() -> void:
 	_radar.offset_bottom = 208
 	_radar.world = world
 	add_child(_radar)
+
+func _fit() -> void:
+	position = Vector2.ZERO
+	size = get_viewport().get_visible_rect().size
 
 func _process(_delta: float) -> void:
 	if player != null:

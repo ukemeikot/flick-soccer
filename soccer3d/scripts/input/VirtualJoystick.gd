@@ -12,9 +12,9 @@ func _ready() -> void:
 
 func _draw() -> void:
 	var c := size / 2.0
-	draw_circle(c, radius, Color(1, 1, 1, 0.12))
-	draw_circle(c, radius, Color(1, 1, 1, 0.25), false, 3.0)
-	draw_circle(c + _knob, radius * 0.42, Color(1, 1, 1, 0.4))
+	draw_circle(c, radius, Color(0, 0, 0, 0.35))
+	draw_circle(c, radius, Color(1, 1, 1, 0.65), false, 4.0)
+	draw_circle(c + _knob, radius * 0.44, Color(1, 1, 1, 0.85))
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch or event is InputEventMouseButton:
