@@ -29,6 +29,7 @@ var camera: BroadcastCamera
 var hud: Hud
 var _marker: MeshInstance3D
 var _forced_active: Player = null # manual player-switch override (Home)
+var _ball_stuck_time := 0.0
 
 var phase := Phase.KICKOFF
 var half := 1
@@ -79,6 +80,7 @@ func _physics_process(delta: float) -> void:
 			if Input.is_action_just_pressed("switch_player") or Touch.consume_switch():
 				_cycle_active()
 			_update_roles()
+			_unstick_ball(delta)
 			time_left = maxf(time_left - delta, 0.0)
 			hud.set_clock(time_left, half)
 			if time_left <= 0.0:
@@ -107,6 +109,17 @@ func _update_roles() -> void:
 		hud.player = human
 	if _marker != null and human != null:
 		_marker.global_position = human.global_position + Vector3(0, 2.35, 0)
+
+func _unstick_ball(delta: float) -> void:
+	# Safety net: if the ball hangs in the air nearly still for too long, knock it down.
+	if ball.global_position.y > 0.8 and ball.linear_velocity.length() < 1.0:
+		_ball_stuck_time += delta
+		if _ball_stuck_time > 1.5:
+			ball.sleeping = false
+			ball.linear_velocity = Vector3(ball.linear_velocity.x, -4.0, ball.linear_velocity.z)
+			_ball_stuck_time = 0.0
+	else:
+		_ball_stuck_time = 0.0
 
 func _pick_active(team: int) -> Player:
 	# A player in possession always takes control (and clears any manual pick for Home).

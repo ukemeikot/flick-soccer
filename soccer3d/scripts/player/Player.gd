@@ -269,6 +269,8 @@ func _gk_control(delta: float) -> void:
 func has_possession() -> bool:
 	if ball == null or _kick_cooldown > 0.0:
 		return false
+	if ball.global_position.y > 0.8: # can't dribble a ball that's in the air
+		return false
 	var d := ball.global_position - global_position
 	d.y = 0.0
 	return d.length() <= control_radius

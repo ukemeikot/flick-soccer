@@ -29,3 +29,4 @@ func _ready() -> void:
 	# Roll resistance so the ball settles instead of gliding forever.
 	linear_damp = 0.6
 	angular_damp = 1.0
+	can_sleep = false # never fall asleep mid-air (avoids getting "stuck" in flight)
