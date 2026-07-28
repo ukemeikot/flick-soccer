@@ -12,7 +12,7 @@ const HALF_L := 20.0
 const MOUTH := 6.0
 const KICKOFF_FREEZE := 1.1
 
-enum Phase { KICKOFF, PLAYING, PAUSED, FULLTIME, DEADBALL }
+enum Phase { KICKOFF, PLAYING, PAUSED, FULLTIME, DEADBALL, GOAL }
 
 # Formation slots for HOME (defends -Z, attacks +Z). {pos, gk}. AWAY is mirrored in Z.
 const FORMATION := [
@@ -47,6 +47,7 @@ var _away_cards := 0
 var _stoppage := 0.0              # accumulated added time
 var _restart_timer := 0.0         # dead-ball settle before play resumes
 var _restart_taker: Player = null
+var _celebrate_timer := 0.0       # goal-celebration hold before kickoff
 
 func _ready() -> void:
 	time_left = MatchConfig.half_seconds
@@ -76,6 +77,7 @@ func _ready() -> void:
 	_marker = _make_marker()
 	add_child(_marker)
 
+	Sfx.start_ambience()
 	_kickoff()
 
 func _physics_process(delta: float) -> void:
@@ -111,6 +113,10 @@ func _physics_process(delta: float) -> void:
 			if _restart_timer <= 0.0:
 				_set_frozen(false)
 				phase = Phase.PLAYING
+		Phase.GOAL:
+			_celebrate_timer -= delta
+			if _celebrate_timer <= 0.0:
+				_kickoff()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
@@ -200,11 +206,15 @@ func best_pass_target(from: Player) -> Player:
 	for p in players:
 		if p.team != from.team or p == from or p.is_gk or p.sent_off:
 			continue
-		var dist := p.global_position.distance_to(from.global_position)
-		if dist < 2.5 or dist > 26.0:
+		var to_p := p.global_position - from.global_position
+		to_p.y = 0.0
+		var dist := to_p.length()
+		if dist < 2.0 or dist > 26.0:
 			continue
 		var forwardness := (p.global_position.z - from.global_position.z) * from.attack_sign()
-		var s := forwardness - dist * 0.2
+		# Strongly prefer a teammate in the direction the player is facing (where you're aiming).
+		var align := from.facing.dot(to_p.normalized())
+		var s := align * 5.0 + forwardness - dist * 0.15
 		if s > best_score:
 			best_score = s
 			best = p
@@ -226,6 +236,26 @@ func through_ball_target(from: Player) -> Player:
 		if s > best_score:
 			best_score = s
 			best = p
+	return best
+
+## Does the given team currently have the ball (for tactical shape)?
+func team_has_ball(team: int) -> bool:
+	var h := _ball_holder()
+	if h != null:
+		return h.team == team
+	return _last_touch_team == team
+
+## Nearest opposing outfielder to p (used for marking).
+func nearest_opponent_forward(p: Player) -> Player:
+	var best: Player = null
+	var best_d := INF
+	for o in players:
+		if o.team == p.team or o.is_gk or o.sent_off:
+			continue
+		var d := o.global_position.distance_to(p.global_position)
+		if d < best_d:
+			best_d = d
+			best = o
 	return best
 
 func opponent_within(p: Player, r: float) -> bool:
@@ -425,7 +455,11 @@ func _on_goal_scored(body: Node, scoring_team: int) -> void:
 	hud.set_score(score_home, score_away)
 	hud.show_goal("HOME" if scoring_team == Player.HOME else "AWAY")
 	Sfx.play("goal")
-	_kickoff()
+	Sfx.play("roar")
+	# Celebration hold: freeze the players and let the camera linger before kickoff.
+	_set_frozen(true)
+	_celebrate_timer = 2.0
+	phase = Phase.GOAL
 
 func _end_of_half() -> void:
 	if half == 1:
@@ -437,7 +471,10 @@ func _end_of_half() -> void:
 	else:
 		phase = Phase.FULLTIME
 		_set_frozen(true)
+		Sfx.stop_ambience()
 		MatchConfig.save_result(score_home, score_away)
+		if MatchConfig.season_return:
+			MatchConfig.record_user_result(score_home, score_away)
 		var result := "DRAW"
 		if score_home > score_away:
 			result = "HOME WINS"
@@ -477,6 +514,7 @@ func rematch() -> void:
 	_kickoff()
 
 func quit_to_menu() -> void:
+	Sfx.stop_ambience()
 	get_tree().change_scene_to_file(MENU_SCENE)
 
 func _set_frozen(frozen: bool) -> void:
@@ -556,14 +594,19 @@ func _build_pitch() -> void:
 	ground.add_child(gcol)
 	add_child(ground)
 
-	# The playable pitch surface (brighter green inside the lines).
-	var pitch := MeshInstance3D.new()
-	var pbox := BoxMesh.new()
-	pbox.size = Vector3(PITCH_WIDTH, 0.02, PITCH_LENGTH)
-	pitch.mesh = pbox
-	pitch.material_override = _mat(Color(0.16, 0.55, 0.24))
-	pitch.position = Vector3(0, 0.005, 0)
-	add_child(pitch)
+	# Mowing stripes: alternating light/dark green bands across the pitch, sitting clearly ABOVE
+	# the ground box so the two don't Z-fight (that coplanar overlap was the on-screen flicker).
+	var stripes := 14
+	var band := PITCH_LENGTH / stripes
+	for i in stripes:
+		var strip := MeshInstance3D.new()
+		var pl := PlaneMesh.new()
+		pl.size = Vector2(PITCH_WIDTH, band)
+		strip.mesh = pl
+		var shade := 0.56 if i % 2 == 0 else 0.49
+		strip.material_override = _mat(Color(0.15, shade, 0.23))
+		strip.position = Vector3(0, 0.015, -PITCH_LENGTH / 2.0 + band * (i + 0.5))
+		add_child(strip)
 
 	# Outer safety walls a few metres beyond the lines — the ball leaves the field of play
 	# (triggering a set piece) but can't roll away forever.

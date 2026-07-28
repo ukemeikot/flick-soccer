@@ -3,7 +3,7 @@ class_name Ball
 ## The match ball. A physics sphere with a little starting roll so P0 shows motion. Kicking
 ## (impulses from players) arrives in P1.
 
-const RADIUS := 0.34
+const RADIUS := 0.22
 const MAGNUS_K := 0.9    # how strongly spin curves the flight path
 const SPIN_DECAY := 0.8  # spin bleeds off over ~1s
 

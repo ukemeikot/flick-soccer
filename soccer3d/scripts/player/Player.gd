@@ -64,6 +64,8 @@ var _leg_l: Node3D
 var _leg_r: Node3D
 var _arm_l: Node3D
 var _arm_r: Node3D
+var _model_root: Node3D          # loaded rigged model (null when using primitives)
+var _model_anim: AnimationPlayer # its walk/run AnimationPlayer
 
 func attack_sign() -> float:
 	return 1.0 if team == HOME else -1.0
@@ -99,21 +101,53 @@ func _build_body() -> void:
 
 	_add_number_label()
 
-## Loads res://assets/players/player.glb (kit-tinted) if present. Returns false when no model
-## has been added yet, so the game still runs on the primitive body. Animation wiring for a
-## rigged model is layered on in Phase B once real art is dropped in.
+const MODEL_PATH := "res://assets/players/player.glb"
+const MODEL_SCALE := 1.16          # bring the ~1.5u model up to ~1.75m
+const MODEL_YAW := 180.0           # face the body's forward (-Z)
+
+## Loads the rigged humanoid model (kit-tinted, animated) if present; falls back to the
+## primitive body otherwise so the game always runs.
 func _try_load_model() -> bool:
-	var path := "res://assets/players/player.glb"
-	if not ResourceLoader.exists(path):
+	if not ResourceLoader.exists(MODEL_PATH):
 		return false
-	var packed := load(path) as PackedScene
+	var packed := load(MODEL_PATH) as PackedScene
 	if packed == null:
 		return false
-	var model := packed.instantiate()
-	if model is Node3D:
-		(model as Node3D).scale = Vector3(1, 1, 1)
+	var model := packed.instantiate() as Node3D
+	if model == null:
+		return false
+	model.scale = Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE)
+	model.rotation_degrees = Vector3(0, MODEL_YAW, 0)
 	add_child(model)
+	_model_root = model
+
+	# Opaque team-colored kit (no transparency → no alpha-sort flicker).
+	var kitmat := StandardMaterial3D.new()
+	kitmat.albedo_color = kit_color
+	kitmat.roughness = 0.75
+	for m in _find_nodes(model, "MeshInstance3D"):
+		(m as MeshInstance3D).material_override = kitmat
+
+	# Drive the walk cycle from movement speed (see _animate).
+	var players := _find_nodes(model, "AnimationPlayer")
+	if not players.is_empty():
+		_model_anim = players[0] as AnimationPlayer
+		var list := _model_anim.get_animation_list()
+		if not list.is_empty():
+			var anim := _model_anim.get_animation(list[0])
+			if anim != null:
+				anim.loop_mode = Animation.LOOP_LINEAR
+			_model_anim.play(list[0])
+			_model_anim.speed_scale = 0.0 # start idle
 	return true
+
+func _find_nodes(root: Node, cls: String) -> Array:
+	var out: Array = []
+	if root.get_class() == cls:
+		out.append(root)
+	for c in root.get_children():
+		out.append_array(_find_nodes(c, cls))
+	return out
 
 func _add_number_label() -> void:
 	# Shirt number on the back (local +Z is behind, since forward is -Z).
@@ -228,6 +262,13 @@ func _apply_movement(dir: Vector3, sprint: bool, delta: float) -> void:
 	_animate(moving, delta)
 
 func _animate(moving: bool, delta: float) -> void:
+	# Rigged model: scrub its walk cycle at a speed proportional to how fast we're moving.
+	if _model_anim != null:
+		if moving:
+			_model_anim.speed_scale = clampf(velocity.length() / walk_speed, 0.7, 2.4)
+		else:
+			_model_anim.speed_scale = 0.0
+		return
 	if _leg_l == null:
 		return
 	var swing := 0.0
@@ -304,11 +345,26 @@ func _ai_control(delta: float) -> void:
 	_apply_movement(dir, false, delta)
 
 func _formation_target() -> Vector3:
-	return Vector3(
-		clampf(home_pos.x + ball.global_position.x * 0.25, -HALF_W + 1.0, HALF_W - 1.0),
-		0.0,
-		clampf(home_pos.z + ball.global_position.z * 0.30, -HALF_L + 1.0, HALF_L - 1.0),
-	)
+	var atk: bool = world.team_has_ball(team)
+	var sign := attack_sign()
+	var is_defender := absf(home_pos.z) > 9.0
+	var is_forward := absf(home_pos.z) < 6.0
+
+	# Whole line pushes up when we have the ball, drops when defending; forwards run deeper.
+	var push := 5.0 if atk else -3.0
+	if atk and is_forward:
+		push += 5.0
+	var base_z := home_pos.z + ball.global_position.z * 0.30 + sign * push
+	var tx := clampf(home_pos.x + ball.global_position.x * 0.25, -HALF_W + 1.0, HALF_W - 1.0)
+	var tz := clampf(base_z, -HALF_L + 2.0, HALF_L - 2.0)
+
+	# Defenders mark: sit goal-side of the nearest opponent when we're defending.
+	if not atk and is_defender:
+		var mark: Player = world.nearest_opponent_forward(self)
+		if mark != null:
+			tx = clampf((mark.global_position.x + tx) * 0.5, -HALF_W + 1.0, HALF_W - 1.0)
+			tz = clampf(mark.global_position.z - sign * 1.5, -HALF_L + 2.0, HALF_L - 2.0)
+	return Vector3(tx, 0.0, tz)
 
 func _gk_control(delta: float) -> void:
 	var own: Vector3 = world.own_goal(team)
@@ -368,14 +424,18 @@ func _pass() -> void:
 	if not _within_kick_range():
 		return
 	var dir := facing
+	var dist := 9.0
 	var target: Player = world.best_pass_target(self)
 	if target != null:
 		var d := target.global_position - global_position
 		d.y = 0.0
 		if d.length() > 0.5:
 			dir = d.normalized()
+			dist = d.length()
+	# Weight power to the distance so short passes aren't overhit and long ones actually arrive.
+	var power := clampf(dist * 1.9, 9.0, 24.0) * attr_pass
 	var high := ball.global_position.y > HIGH_BALL_Y
-	_launch(dir * pass_power * attr_pass + Vector3.UP * (2.5 if high else 1.5))
+	_launch(dir * power + Vector3.UP * (2.5 if high else 1.0))
 
 func _shoot(c: float) -> void:
 	if not _within_kick_range():
