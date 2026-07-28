@@ -3,7 +3,7 @@ class_name Ball
 ## The match ball. A physics sphere with a little starting roll so P0 shows motion. Kicking
 ## (impulses from players) arrives in P1.
 
-const RADIUS := 0.3
+const RADIUS := 0.34
 
 func _ready() -> void:
 	var mesh := MeshInstance3D.new()

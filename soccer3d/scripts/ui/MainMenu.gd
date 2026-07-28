@@ -3,7 +3,7 @@ extends Control
 ## (difficulty, half length, kit colors) before kickoff. Both games live in this one Godot app.
 
 const MATCH_SCENE := "res://scenes/Match.tscn"
-const FLICK_SCENE := "res://scenes/FlickPlaceholder.tscn"
+const FLICK_SCENE := "res://scenes/FlickMatch.tscn"
 const HALF_LENGTHS := [60.0, 120.0, 180.0]
 
 var _main: Control

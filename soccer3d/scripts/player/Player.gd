@@ -9,10 +9,10 @@ const AWAY := 1
 const HALF_W := 12.5
 const HALF_L := 20.0
 
-@export var walk_speed := 6.5
-@export var sprint_speed := 10.5
-@export var control_radius := 1.5
-@export var dribble_distance := 1.15
+@export var walk_speed := 7.6
+@export var sprint_speed := 12.0
+@export var control_radius := 1.6
+@export var dribble_distance := 1.05
 @export var pass_power := 13.0
 @export var min_shot_power := 12.0
 @export var max_shot_power := 26.0
