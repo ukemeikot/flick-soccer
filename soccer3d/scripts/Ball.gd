@@ -1,4 +1,5 @@
 extends RigidBody3D
+class_name Ball
 ## The match ball. A physics sphere with a little starting roll so P0 shows motion. Kicking
 ## (impulses from players) arrives in P1.
 
@@ -25,6 +26,6 @@ func _ready() -> void:
 	pm.bounce = 0.5
 	pm.friction = 0.6
 	physics_material_override = pm
-
-	# A gentle roll so the pitch + follow-camera are visibly working in P0.
-	linear_velocity = Vector3(4.0, 0.0, 6.0)
+	# Roll resistance so the ball settles instead of gliding forever.
+	linear_damp = 0.6
+	angular_damp = 1.0

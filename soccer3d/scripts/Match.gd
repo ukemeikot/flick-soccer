@@ -3,9 +3,6 @@ extends Node3D
 ## keyboard-movable debug player, and a broadcast camera that follows the ball. Built in code so the
 ## project loads reliably; proper scenes are extracted as the game grows. Esc returns to the menu.
 
-const BallScript := preload("res://scripts/Ball.gd")
-const PlayerScript := preload("res://scripts/player/DebugPlayer.gd")
-const CameraScript := preload("res://scripts/camera/BroadcastCamera.gd")
 const MENU_SCENE := "res://scenes/MainMenu.tscn"
 
 const PITCH_LENGTH := 40.0 # along Z
@@ -15,21 +12,26 @@ func _ready() -> void:
 	_build_environment()
 	_build_pitch()
 
-	var ball := RigidBody3D.new()
-	ball.set_script(BallScript)
+	var ball := Ball.new()
 	ball.position = Vector3(0.0, 0.3, 0.0)
 	add_child(ball)
 
-	var player := CharacterBody3D.new()
-	player.set_script(PlayerScript)
-	player.position = Vector3(0.0, 0.9, 6.0)
+	var player := Player.new()
+	player.position = Vector3(0.0, 0.9, 4.0)
 	add_child(player)
+	player.ball = ball
 
-	var cam := Camera3D.new()
-	cam.set_script(CameraScript)
+	var cam := BroadcastCamera.new()
 	cam.fov = 60.0
 	add_child(cam)
 	cam.target = ball
+
+	# HUD (stamina + shot-power meter + controls hint).
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	var hud := Hud.new()
+	layer.add_child(hud)
+	hud.player = player
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):

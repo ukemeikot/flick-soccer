@@ -1,4 +1,5 @@
 extends Camera3D
+class_name BroadcastCamera
 ## Broadcast-style camera: sits above/behind and follows the target (the ball) with smoothing.
 
 @export var offset := Vector3(0.0, 16.0, 14.0)
