@@ -9,8 +9,8 @@ const HALF_L := 22.0
 const MOUTH := 10.0
 const DISC_R := 1.2
 const BALL_R := 0.7
-const MAX_DRAG := 8.0
-const MAX_IMPULSE := 46.0
+const MAX_DRAG := 5.0     # world units of drag for full power (easy to reach)
+const MAX_IMPULSE := 90.0 # strong top-end flick
 const REST_SPEED := 0.35
 const GOALS_TO_WIN := 5
 const TURN_LIMIT := 24
@@ -298,8 +298,8 @@ func _make_disc(team: int, color: Color) -> RigidBody3D:
 	d.axis_lock_linear_y = true
 	d.axis_lock_angular_x = true
 	d.axis_lock_angular_z = true
-	d.mass = 3.0
-	d.linear_damp = 2.6
+	d.mass = 2.0
+	d.linear_damp = 1.3  # carries momentum into the ball instead of stopping instantly
 	d.angular_damp = 3.0
 	d.set_meta("team", team)
 	var mesh := MeshInstance3D.new()
@@ -322,7 +322,7 @@ func _make_ball() -> RigidBody3D:
 	var b := RigidBody3D.new()
 	b.axis_lock_linear_y = true
 	b.mass = 1.0
-	b.linear_damp = 1.4
+	b.linear_damp = 1.1
 	b.angular_damp = 1.5
 	b.can_sleep = false
 	var mesh := MeshInstance3D.new()
