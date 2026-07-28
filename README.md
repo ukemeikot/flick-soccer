@@ -1,122 +1,155 @@
-# Soccer (monorepo)
+# Soccer — 3D Football + Flick Soccer (Godot 4)
 
-> **⚑ New direction:** this repo is pivoting to a **stylized 3D arcade football game (Dream League
-> Soccer–inspired, 5-a-side) built in Godot 4** — see [`football-plan.md`](football-plan.md) and the
-> Godot project in [`soccer3d/`](soccer3d/). Both games live behind one menu in the Godot app:
-> **3D Football (Exhibition)** and **Flick Soccer** (being ported from the Kotlin version below).
-> The Kotlin/Compose flick game documented here remains as the reference for that port.
+A stylized 3D arcade football game (Dream League Soccer–inspired, **5-a-side**) built in **Godot 4**,
+plus a turn-based **Flick Soccer** table game — both behind one in-app menu. Runs on **Windows
+desktop** and **Android** from a single Godot project in [`soccer3d/`](soccer3d/).
 
----
-
-# Flick Soccer (Kotlin/Compose — reference / to be ported)
-
-A turn-based physics soccer game built with **Kotlin Multiplatform** and **Compose Multiplatform**. Two teams of 5 discs flick a ball around a pitch; chip the ball over defenders and under the crossbar to score.
-
-Targets: **Android · iOS · Desktop (JVM)**.
-
-> Status: **v1 feature-complete (M0–M7)** on Desktop + Android. Boots straight to the menu (no
-> login/account gate). Local 2-player and vs-AI (Easy/Medium/Hard) are playable — slingshot aiming
-> with a 3D-picked disc, Ground/Chip shots, real 2.5D physics, scoring, goal reset, match-over,
-> procedural sound effects, haptics (Android), and settings (sound/haptics/difficulty/team colors).
->
-> **Renderer note:** the match is drawn with a **Compose Canvas 2.5D renderer** (projected through a
-> perspective camera) rather than the OpenGL path — the heavyweight `AWTGLCanvas` would not composite
-> inside Compose Desktop's `SwingPanel`. The OpenGL renderer + `Gl` abstraction remain in the repo
-> behind the interface for a future true-3D pass. Desktop unit tests: 35 green.
->
-> **Try it:** `./gradlew :composeApp:run` (desktop) or run the `composeApp` config on an Android
-> device/emulator. Drag back from one of your (blue) discs and release to flick; toggle ⚽ Ground /
-> 🪁 Chip in the HUD.
+> The original **Kotlin/Compose Multiplatform** flick game lives on as a reference implementation —
+> see [Legacy: Kotlin flick game](#legacy-kotlin-flick-game) at the bottom.
 
 ---
 
-## Tech stack
+## The two games
 
-| Concern | Choice |
+Launch boots to a menu — **Choose a game**:
+
+| Mode | What it is |
 |---|---|
-| Language | Kotlin 2.1 (multiplatform) |
-| Platforms | Android, iOS, Desktop (JVM) |
-| UI (menus / HUD) | Compose Multiplatform |
-| Match rendering | Hand-rolled **OpenGL** renderer in `commonMain` behind a ~40-function `Gl` interface; one thin `actual` per platform (Android `GLES30`, iOS GLES cinterop, Desktop LWJGL 3 + `AWTGLCanvas`) |
-| Architecture | MVVM, unidirectional data flow (UI → intents → ViewModel → immutable `StateFlow` → UI) |
-| Physics | Custom deterministic 2.5D engine (pure Kotlin, `commonMain`) — discs on a 2D plane, ball as a sphere with a height axis |
-| 3D math | Hand-written `Mat4` / `Vec3` (perspective, lookAt, plane raycast) — no dependency |
-| DI | Koin (multiplatform) |
-| Persistence | `multiplatform-settings` + `kotlinx.serialization` |
-| Async | Coroutines + `StateFlow` |
-| Audio | `expect/actual`: Android `SoundPool`, iOS `AVAudioPlayer`, Desktop `javax.sound.sampled` |
-| Haptics | `expect/actual`: Android `Vibrator`, iOS `UIImpactFeedbackGenerator`, Desktop no-op |
-| Navigation | Simple sealed-class screen state (3 screens) |
-| Testing | `kotlin.test` in `commonTest` (physics, engine, AI, math) |
-
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the full architecture rationale and the phased build plan.
+| **3D Football — Exhibition** | A single 5-a-side match. Pick your club, the opponent, difficulty, and half length, then kick off. |
+| **Season** | A full round-robin league across 6 clubs — play your fixtures (you're always home), the rest are auto-simulated, live standings decide the champion. Progress is saved to disk. |
+| **Flick Soccer** | Turn-based table football: drag from one of your discs and release to flick it at the ball. Physics pucks, goals, CPU opponent. |
 
 ---
 
-## Project layout
+## 3D Football — features
 
+**Controls & ball feel**
+- Momentum-based movement (acceleration, weight, finite turn rate) — no snapping.
+- Curved/finesse shots via a real **Magnus** effect (push the stick across the shot to bend it).
+- **Through-balls** played into space ahead of a runner.
+- Cushioned **first touch** instead of an instant trap.
+- Charged shot power (hold Shoot).
+
+**Players & actions**
+- Real **rigged, animated humanoid** players (RobotExpressive, CC0) in team kits — Idle / Running /
+  Punch(kick) clips driven by game state; model auto-scaled to height.
+- Per-position **attributes** (pace / shooting / passing / defending) — a striker ≠ a defender.
+- **Slide tackle** that either wins the ball or concedes a foul.
+- **Goalkeeper** shot-prediction and diving.
+- Manual **player switching** with an active-player marker.
+
+**Team AI & tactics**
+- Possession-based team shape: push up in attack, drop and **mark** when defending.
+- Forward off-ball runs, pressing, formation spread.
+
+**Rules & set pieces**
+- Out of play → **throw-in / corner / goal kick** (decided by last touch).
+- **Fouls → free kicks**, fouls in the box → **penalties**.
+- **Yellow / red cards** with send-offs.
+- Two halves, match clock, and **added (stoppage) time**.
+
+**Presentation**
+- Pitch **mowing stripes**, goal frame + net, stands.
+- **Goal celebration** hold with a crowd **roar**, looping crowd **ambience**.
+- **Commentary** announcer lines on key events.
+- Broadcast camera that leads the ball, **radar** minimap, stamina & shot-power meters, club-named scoreboard.
+- Procedural audio (kick / whistle / goal / roar / crowd) — no audio files.
+
+---
+
+## Controls
+
+**Desktop (keyboard)**
+
+| Action | Key |
+|---|---|
+| Move | WASD / Arrow keys |
+| Sprint | Shift |
+| Pass | J / Space |
+| Through-ball | I / U |
+| Shoot (hold to charge) | K |
+| Tackle / slide | L |
+| Switch player | Q / Tab |
+| Pause | Esc |
+
+**Mobile (on-screen)** — left **virtual joystick** + right buttons: **SHOOT** (hold), **PASS**,
+**THRU**, **SPRINT**, **TACKLE**, **SWITCH**. Shown automatically on touch devices.
+
+---
+
+## Running & building
+
+Requires **Godot 4.7.1** (standard, not .NET).
+
+**Play in the editor**
 ```
-flick-soccer/
-├── composeApp/                     # single shared KMP module + platform entry points
-│   ├── build.gradle.kts
-│   └── src/
-│       ├── commonMain/kotlin/io/github/ukemeikot/flicksoccer/
-│       │   ├── App.kt              # root composable + sealed-class navigation
-│       │   ├── di/                 # Koin modules
-│       │   ├── domain/             # model, physics, engine, ai  (pure Kotlin)
-│       │   ├── data/               # settings & match-history repositories
-│       │   ├── platform/           # expect: AudioPlayer, Haptics, gl/Gl, gl/GameGlSurface
-│       │   ├── ui/                 # theme, menu, settings, game (screens + ViewModels + render/)
-│       │   └── util/               # Mat4, Vec3, MathX, FixedTimestepClock
-│       ├── commonTest/kotlin/...   # engine / physics / AI / math tests
-│       ├── androidMain/kotlin/...  # MainActivity + actual impls
-│       ├── iosMain/kotlin/...      # MainViewController + actual impls
-│       └── desktopMain/kotlin/...  # main.kt + actual impls
-├── iosApp/                         # Xcode wrapper (build iOS on macOS)
-├── gradle/libs.versions.toml
-└── settings.gradle.kts
+Open soccer3d/ in Godot 4.7.1 and press Play (boots res://scenes/MainMenu.tscn).
 ```
 
----
-
-## Prerequisites
-
-- **JDK 17+**
-- **Android SDK** (via Android Studio) with `local.properties` pointing to it, or `ANDROID_HOME` set — required to build the Android target and to configure the Gradle project.
-- **macOS + Xcode** — required only to build/run the iOS target. iOS cannot be built on Windows/Linux.
-
----
-
-## Running
-
-### Desktop (JVM) — fastest iteration loop
+**Headless import / smoke test** (used in CI-style checks)
 ```bash
-./gradlew :composeApp:desktopRun -DmainClass=io.github.ukemeikot.flicksoccer.MainKt
-# or the convenience task:
-./gradlew :composeApp:run
+godot --headless --path soccer3d --import
+godot --headless --path soccer3d res://scenes/Match.tscn --quit-after 600
 ```
 
-### Android
-Open in Android Studio and run the `composeApp` configuration on an emulator/device, or:
+**Export builds** (presets: `Windows Desktop`, `Android`)
 ```bash
-./gradlew :composeApp:installDebug
+godot --headless --path soccer3d --export-release "Windows Desktop" soccer3d/build/Soccer3D.exe
+godot --headless --path soccer3d --export-debug   "Android"         soccer3d/build/Soccer3D.apk
 ```
+Android needs the 4.7.1 export templates, a debug keystore, and ETC2 texture compression enabled
+(already set in the project). Install to a device with `adb install -r soccer3d/build/Soccer3D.apk`.
+Build outputs under `soccer3d/build/` are git-ignored.
 
-### iOS (macOS only)
-Open `iosApp/iosApp.xcodeproj` in Xcode and run, or use the KMP run configuration in Android Studio / Fleet.
+---
 
-### Tests
-```bash
-./gradlew :composeApp:desktopTest        # JVM unit tests (physics, engine, AI, math)
+## Project structure
+
+```
+soccer3d/
+├── project.godot                 # autoloads, input map, landscape + touch settings
+├── scenes/                       # MainMenu, Match, FlickMatch
+├── scripts/
+│   ├── Match.gd                  # match loop: teams, rules, set pieces, clock, presentation
+│   ├── Ball.gd                   # ball physics + Magnus curve
+│   ├── player/Player.gd          # movement, actions, AI, GK, model + animation state machine
+│   ├── flick/FlickMatch.gd       # turn-based flick game
+│   ├── input/                    # InputActions, Touch singleton, TouchControls, VirtualJoystick
+│   ├── ui/                       # MainMenu (+ Season screen), Hud, Radar
+│   ├── camera/BroadcastCamera.gd
+│   ├── audio/Sfx.gd              # procedural SFX + crowd ambience
+│   └── match/MatchConfig.gd      # config, clubs, Season league + persistence
+├── assets/players/               # player.glb (RobotExpressive) + ATTRIBUTION.md
+└── tools/                        # headless dev scripts (inspect/measure model, season test)
 ```
 
 ---
 
-## Notes
+## Assets & attribution
 
-- **No authentication.** v1 has no accounts, login, or network — the app opens directly to the menu and into a match. Out of scope for v1: online multiplayer, monetization, accounts, tournaments.
-- **iOS OpenGL ES is deprecated** by Apple (still functional, frozen at ES 3.0). The renderer depends only on the `Gl` interface, so a future Metal/ANGLE backend swaps one `actual` without touching game code. Deprecation warnings are expected and intentionally not suppressed — see the risks section of the implementation plan.
+- **player.glb** = **RobotExpressive** by Tomás Laulhé, modified by Don McCurdy — **CC0** (from the
+  three.js examples). See [`soccer3d/assets/players/ATTRIBUTION.md`](soccer3d/assets/players/ATTRIBUTION.md).
+- All audio is synthesized procedurally in code (no sound files).
+- Pitch, stadium, goals, and UI are built from Godot primitives.
+
+---
+
+## Roadmap / ideas
+
+- Football-specific kick/tackle/dive animations (current kick reuses a punch clip).
+- Goal replays, richer commentary, more clubs, a formation editor.
+- Separate skin vs kit materials on the player model; higher-fidelity models.
+
+---
+
+## Legacy: Kotlin flick game
+
+The repo began as **Flick Soccer**, a turn-based physics game in **Kotlin Multiplatform + Compose
+Multiplatform** (Android / iOS / Desktop), feature-complete through M0–M7 with a Compose Canvas 2.5D
+renderer, AI, and procedural audio. It is retained as the reference for the Godot Flick Soccer port.
+The `composeApp/`, `iosApp/`, and Gradle files belong to that version; see
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for its architecture.
 
 ## License
 
-TBD.
+Code: TBD. Bundled model asset: CC0 (see attribution above).
