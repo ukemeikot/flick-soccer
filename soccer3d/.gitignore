@@ -5,8 +5,5 @@
 /export/
 /build/
 
-# Godot export presets can contain machine paths / secrets
-export_presets.cfg
-
 # Mono/C# (unused for now)
 .mono/

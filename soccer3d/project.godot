@@ -24,3 +24,7 @@ MatchConfig="*res://scripts/match/MatchConfig.gd"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true
