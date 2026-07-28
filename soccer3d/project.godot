@@ -20,6 +20,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 InputActions="*res://scripts/input/InputActions.gd"
 MatchConfig="*res://scripts/match/MatchConfig.gd"
 Touch="*res://scripts/input/Touch.gd"
+Sfx="*res://scripts/audio/Sfx.gd"
 
 [display]
 

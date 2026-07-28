@@ -27,6 +27,7 @@ var ball: Ball
 var players: Array[Player] = []
 var camera: BroadcastCamera
 var hud: Hud
+var _marker: MeshInstance3D
 
 var phase := Phase.KICKOFF
 var half := 1
@@ -59,6 +60,9 @@ func _ready() -> void:
 	layer.add_child(hud)
 	hud.set_score(0, 0)
 	layer.add_child(TouchControls.new()) # on-screen controls (mobile only)
+
+	_marker = _make_marker()
+	add_child(_marker)
 
 	_kickoff()
 
@@ -95,8 +99,11 @@ func _update_roles() -> void:
 				continue
 			p.role_chase = (p == chaser)
 			p.is_human = (t == Player.HOME and p == active)
+	var human := _pick_active(Player.HOME)
 	if hud != null:
-		hud.player = _pick_active(Player.HOME)
+		hud.player = human
+	if _marker != null and human != null:
+		_marker.global_position = human.global_position + Vector3(0, 2.35, 0)
 
 func _pick_active(team: int) -> Player:
 	for p in players:
@@ -158,6 +165,7 @@ func _kickoff() -> void:
 	_set_frozen(true)
 	_kickoff_timer = KICKOFF_FREEZE
 	phase = Phase.KICKOFF
+	Sfx.play("whistle")
 
 func _reset_positions() -> void:
 	for p in players:
@@ -173,6 +181,7 @@ func _on_goal_scored(body: Node, scoring_team: int) -> void:
 		score_away += 1
 	hud.set_score(score_home, score_away)
 	hud.show_goal("HOME" if scoring_team == Player.HOME else "AWAY")
+	Sfx.play("goal")
 	_kickoff()
 
 func _end_of_half() -> void:
@@ -394,6 +403,20 @@ func _visual_box(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
 	m.material_override = mat
 	m.position = pos
 	add_child(m)
+
+func _make_marker() -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.32
+	cone.height = 0.55
+	m.mesh = cone
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.9, 0.15)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.material_override = mat
+	m.rotation_degrees = Vector3(180, 0, 0) # tip points down
+	return m
 
 func _mat(c: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()

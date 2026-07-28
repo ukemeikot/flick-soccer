@@ -16,6 +16,7 @@ var _goal_timer := 0.0
 var _pause: Control
 var _result: Control
 var _result_label: Label
+var _radar: Radar
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -84,6 +85,16 @@ func _ready() -> void:
 	_result_label = _result.get_meta("title") as Label
 	add_child(_result)
 
+	# Radar minimap (top-right).
+	_radar = Radar.new()
+	_radar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_radar.offset_left = -216
+	_radar.offset_right = -16
+	_radar.offset_top = 78
+	_radar.offset_bottom = 208
+	_radar.world = world
+	add_child(_radar)
+
 func _process(_delta: float) -> void:
 	if player != null:
 		_stamina_fill.size.x = 196.0 * clampf(player.stamina, 0.0, 1.0)
@@ -93,6 +104,9 @@ func _process(_delta: float) -> void:
 		_power_bar.visible = charging
 		if charging:
 			_power_fill.size.x = 256.0 * clampf(player.charge_ratio(), 0.0, 1.0)
+	if _radar != null:
+		_radar.active = player
+		_radar.queue_redraw()
 	if _goal_timer > 0.0:
 		_goal_timer -= _delta
 		if _goal_timer <= 0.0:

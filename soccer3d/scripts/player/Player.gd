@@ -315,6 +315,7 @@ func _launch(impulse: Vector3) -> void:
 	ball.linear_velocity = Vector3.ZERO
 	ball.apply_central_impulse(impulse)
 	_kick_cooldown = KICK_COOLDOWN
+	Sfx.play("kick")
 
 func charge_ratio() -> float:
 	return charge
