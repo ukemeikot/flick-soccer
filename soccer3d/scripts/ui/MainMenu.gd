@@ -12,8 +12,8 @@ var _season: Control
 var _season_vb: VBoxContainer
 var _diff: OptionButton
 var _half: OptionButton
-var _home_kit: OptionButton
-var _away_kit: OptionButton
+var _home_club: OptionButton
+var _away_club: OptionButton
 var _team_pick: OptionButton
 
 func _ready() -> void:
@@ -64,10 +64,10 @@ func _build_setup() -> Control:
 	vb.add_child(_row("Difficulty", _diff))
 	_half = _option(["1 min", "2 min", "3 min"], 1)
 	vb.add_child(_row("Half length", _half))
-	_home_kit = _option(["Blue", "Red", "Gold", "Teal"], 0)
-	vb.add_child(_row("Home kit", _home_kit))
-	_away_kit = _option(["Blue", "Red", "Gold", "Teal"], 1)
-	vb.add_child(_row("Away kit", _away_kit))
+	_home_club = _option(MatchConfig.team_names(), 0)
+	vb.add_child(_row("Your club", _home_club))
+	_away_club = _option(MatchConfig.team_names(), 1)
+	vb.add_child(_row("Opponent", _away_club))
 
 	vb.add_child(_button("Kick Off", func(): _start_match()))
 	vb.add_child(_button("Back", func(): _show_main()))
@@ -76,8 +76,11 @@ func _build_setup() -> Control:
 func _start_match() -> void:
 	MatchConfig.difficulty = _diff.selected
 	MatchConfig.half_seconds = HALF_LENGTHS[_half.selected]
-	MatchConfig.home_kit = _home_kit.selected
-	MatchConfig.away_kit = _away_kit.selected
+	var away := _away_club.selected
+	if away == _home_club.selected: # can't play yourself — pick a different opponent
+		away = (away + 1) % MatchConfig.TEAMS.size()
+	MatchConfig.set_exhibition_teams(_home_club.selected, away)
+	MatchConfig.season_return = false # exhibition never records into the season
 	get_tree().change_scene_to_file(MATCH_SCENE)
 
 func _show_setup() -> void:

@@ -26,7 +26,13 @@ const TEAMS := [
 	{"name": "Crimson United", "kit": 1, "rating": 0.82},
 	{"name": "Gold Rovers", "kit": 2, "rating": 0.64},
 	{"name": "Teal City", "kit": 3, "rating": 0.74},
+	{"name": "Silver Wolves", "kit": 0, "rating": 0.68},
+	{"name": "Ember Rangers", "kit": 1, "rating": 0.78},
 ]
+
+# Clubs picked for the current match (indices into TEAMS); used for names & kits.
+var home_team := 0
+var away_team := 1
 
 var season_active := false
 var season_user := 0                    # index into TEAMS (the player's club)
@@ -44,25 +50,57 @@ func team_names() -> Array:
 		out.append(t["name"])
 	return out
 
-## Build a fresh round-robin season with the player controlling team `user_idx`.
+func team_name(i: int) -> String:
+	return TEAMS[clampi(i, 0, TEAMS.size() - 1)]["name"]
+
+func home_name() -> String:
+	return team_name(home_team)
+
+func away_name() -> String:
+	return team_name(away_team)
+
+## Configure an exhibition match between two chosen clubs (kits derived, clash avoided).
+func set_exhibition_teams(h: int, a: int) -> void:
+	home_team = h
+	away_team = a
+	home_kit = TEAMS[h]["kit"]
+	away_kit = TEAMS[a]["kit"]
+	if away_kit == home_kit:
+		away_kit = (home_kit + 1) % KITS.size()
+
+## Build a fresh full round-robin season (circle method) with the player as `user_idx`.
+## Every club plays every other once; the player is always the home side in their own games.
 func start_season(user_idx: int) -> void:
 	season_user = clampi(user_idx, 0, TEAMS.size() - 1)
 	season_round = 0
 	season_fixtures = []
-	var others: Array = []
-	for i in TEAMS.size():
-		if i != season_user:
-			others.append(i)
-	# 3 rounds; each round = the player's match (they are home) + the other pair's match.
-	for r in others.size():
-		season_fixtures.append({"round": r, "h": season_user, "a": others[r], "hs": -1, "as": -1, "played": false, "user": true})
-		var rest: Array = []
-		for o in others:
-			if o != others[r]:
-				rest.append(o)
-		season_fixtures.append({"round": r, "h": rest[0], "a": rest[1], "hs": -1, "as": -1, "played": false, "user": false})
+	for r in _round_robin(TEAMS.size()).size():
+		var pairs: Array = _round_robin(TEAMS.size())[r]
+		for pair in pairs:
+			var h: int = pair[0]
+			var a: int = pair[1]
+			if a == season_user: # keep the player at home for control
+				var tmp := h; h = a; a = tmp
+			season_fixtures.append({
+				"round": r, "h": h, "a": a, "hs": -1, "as": -1,
+				"played": false, "user": (h == season_user)})
 	season_active = true
 	save_season()
+
+## Circle-method schedule: returns rounds, each a list of [home, away] index pairs.
+func _round_robin(n: int) -> Array:
+	var arr: Array = []
+	for i in n:
+		arr.append(i)
+	var rounds: Array = []
+	for r in n - 1:
+		var pairs: Array = []
+		for i in n / 2:
+			pairs.append([arr[i], arr[n - 1 - i]])
+		rounds.append(pairs)
+		var last = arr.pop_back()
+		arr.insert(1, last) # fix arr[0], rotate the rest
+	return rounds
 
 ## The player's next unplayed fixture (they are always the home side for control).
 func next_user_fixture() -> Dictionary:
@@ -76,8 +114,10 @@ func prepare_season_match() -> bool:
 	var f := next_user_fixture()
 	if f.is_empty():
 		return false
-	home_kit = TEAMS[f["h"]]["kit"]
-	away_kit = TEAMS[f["a"]]["kit"]
+	home_team = int(f["h"])
+	away_team = int(f["a"])
+	home_kit = TEAMS[home_team]["kit"]
+	away_kit = TEAMS[away_team]["kit"]
 	if away_kit == home_kit: # avoid a kit clash
 		away_kit = (home_kit + 1) % KITS.size()
 	# Opponent strength drives difficulty.
@@ -102,7 +142,7 @@ func record_user_result(home_goals: int, away_goals: int) -> void:
 			other["hs"] = res[0]
 			other["as"] = res[1]
 			other["played"] = true
-	season_round = mini(season_round + 1, 3)
+	season_round = mini(season_round + 1, TEAMS.size() - 1)
 	season_just_played = true
 	save_season()
 

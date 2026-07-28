@@ -9,6 +9,12 @@ var player: Player
 var _score_label: Label
 var _clock_label: Label
 var _info_label: Label
+var _commentary: Label
+var _commentary_timer := 0.0
+var _home_name := "HOME"
+var _away_name := "AWAY"
+var _home_score := 0
+var _away_score := 0
 var _stamina_fill: ColorRect
 var _power_bar: Control
 var _power_fill: ColorRect
@@ -72,6 +78,14 @@ func _ready() -> void:
 	hint.position = Vector2(16, 40)
 	add_child(hint)
 
+	# Commentary line (lower third).
+	_commentary = _make_label("", 22)
+	_commentary.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_commentary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_commentary.add_theme_color_override("font_color", Color(1, 0.95, 0.7))
+	_commentary.visible = false
+	add_child(_commentary)
+
 	# GOAL! banner.
 	_goal_banner = _make_label("GOAL!", 72)
 	_goal_banner.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -123,9 +137,21 @@ func _process(_delta: float) -> void:
 		_goal_timer -= _delta
 		if _goal_timer <= 0.0:
 			_goal_banner.visible = false
+	if _commentary_timer > 0.0:
+		_commentary.position = Vector2(0, get_viewport_rect().size.y - 118.0)
+		_commentary_timer -= _delta
+		if _commentary_timer <= 0.0:
+			_commentary.visible = false
+
+func set_teams(home_name: String, away_name: String) -> void:
+	_home_name = home_name
+	_away_name = away_name
+	set_score(_home_score, _away_score)
 
 func set_score(home: int, away: int) -> void:
-	_score_label.text = "HOME  %d - %d  AWAY" % [home, away]
+	_home_score = home
+	_away_score = away
+	_score_label.text = "%s  %d - %d  %s" % [_home_name, home, away, _away_name]
 
 func set_clock(seconds: float, half: int, stoppage := 0.0) -> void:
 	var s := int(ceil(seconds))
@@ -136,6 +162,14 @@ func set_clock(seconds: float, half: int, stoppage := 0.0) -> void:
 func set_info(text: String) -> void:
 	if _info_label != null:
 		_info_label.text = text
+
+## Show a transient commentary line in the lower third.
+func say(text: String) -> void:
+	if _commentary == null:
+		return
+	_commentary.text = text
+	_commentary.visible = true
+	_commentary_timer = 2.6
 
 func show_goal(team_name: String) -> void:
 	show_banner("%s GOAL!" % team_name, 1.6)

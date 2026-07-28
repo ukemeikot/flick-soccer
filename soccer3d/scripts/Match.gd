@@ -71,6 +71,7 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.world = self
 	layer.add_child(hud)
+	hud.set_teams(MatchConfig.home_name(), MatchConfig.away_name())
 	hud.set_score(0, 0)
 	layer.add_child(TouchControls.new()) # on-screen controls (mobile only)
 
@@ -306,6 +307,7 @@ func _award_foul(offender: Player, victim: Player) -> void:
 	if _in_penalty_box(spot, offender.team):
 		Sfx.play("whistle")
 		hud.show_banner("PENALTY!", 1.6)
+		_say(["Penalty! No doubt about it.", "It's a spot kick!", "The referee points to the spot!"])
 		_maybe_card(offender, true)
 		_start_penalty(victim.team)
 		_update_info()
@@ -313,6 +315,7 @@ func _award_foul(offender: Player, victim: Player) -> void:
 
 	Sfx.play("whistle")
 	hud.show_banner("FREE KICK", 1.3)
+	_say(["That's a foul.", "Free kick given.", "The referee blows up."])
 	_maybe_card(offender, false)
 	_start_restart(victim.team, spot)
 	_update_info()
@@ -427,6 +430,11 @@ func _update_info() -> void:
 	if hud != null:
 		hud.set_info("Fouls  %d-%d   Cards  %d-%d" % [_home_fouls, _away_fouls, _home_cards, _away_cards])
 
+## Announcer: pick a random line from the list and show it as commentary.
+func _say(lines: Array) -> void:
+	if hud != null and not lines.is_empty():
+		hud.say(lines[randi() % lines.size()])
+
 # --- Match flow -----------------------------------------------------------------------------
 
 func _kickoff() -> void:
@@ -439,6 +447,7 @@ func _kickoff() -> void:
 	_kickoff_timer = KICKOFF_FREEZE
 	phase = Phase.KICKOFF
 	Sfx.play("whistle")
+	_say(["Kick-off!", "We're underway!", "Game on!"])
 
 func _reset_positions() -> void:
 	for p in players:
@@ -453,9 +462,10 @@ func _on_goal_scored(body: Node, scoring_team: int) -> void:
 	else:
 		score_away += 1
 	hud.set_score(score_home, score_away)
-	hud.show_goal("HOME" if scoring_team == Player.HOME else "AWAY")
+	hud.show_goal(MatchConfig.home_name() if scoring_team == Player.HOME else MatchConfig.away_name())
 	Sfx.play("goal")
 	Sfx.play("roar")
+	_say(["GOAL! What a finish!", "It's in the net!", "GOAL! Clinical!", "What a strike — GOAL!", "The net bulges — GOAL!"])
 	# Celebration hold: freeze the players and let the camera linger before kickoff.
 	_set_frozen(true)
 	_celebrate_timer = 2.0
@@ -477,10 +487,10 @@ func _end_of_half() -> void:
 			MatchConfig.record_user_result(score_home, score_away)
 		var result := "DRAW"
 		if score_home > score_away:
-			result = "HOME WINS"
+			result = "%s WIN" % MatchConfig.home_name()
 		elif score_away > score_home:
-			result = "AWAY WINS"
-		hud.show_result("%s\n%d - %d" % [result, score_home, score_away])
+			result = "%s WIN" % MatchConfig.away_name()
+		hud.show_result("%s\n%s %d - %d %s" % [result, MatchConfig.home_name(), score_home, score_away, MatchConfig.away_name()])
 
 func _pause() -> void:
 	phase = Phase.PAUSED
