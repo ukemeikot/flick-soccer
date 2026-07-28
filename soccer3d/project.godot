@@ -15,11 +15,12 @@ config/description="Stylized 3D arcade 5-a-side football (Exhibition Match)."
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
+[autoload]
+
+InputActions="*res://scripts/input/InputActions.gd"
+MatchConfig="*res://scripts/match/MatchConfig.gd"
+
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
-
-[autoload]
-
-InputActions="*res://scripts/input/InputActions.gd"
